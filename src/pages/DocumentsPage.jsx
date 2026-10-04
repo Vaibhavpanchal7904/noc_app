@@ -47,7 +47,7 @@ export const DocumentsPage = () => {
             Digitized official letters, scanned requirement notes, quotation sheets, and bills.
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowScannerModal(true)}>
+        <button className="btn btn-primary" onClick={() => setShowScanner(true)}>
           <Camera size={16} /> Scan / Upload Document
         </button>
       </div>
