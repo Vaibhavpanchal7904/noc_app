@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { getActiveSupabaseUrl, getActiveSupabaseAnonKey, setRuntimeSupabaseConfig, testSupabaseConnection } from '../supabaseClient';
 
 export const SettingsPage = () => {
-  const { letterSettings, setLetterSettings, resetToFactoryData, syncStatus, lastSyncTime, syncError, isConfigured, syncLocalToCloud, migrationStatus, requests } = useData();
+  const { letterSettings, setLetterSettings, authorities, resetToFactoryData, syncStatus, lastSyncTime, syncError, isConfigured, syncLocalToCloud, migrationStatus, requests } = useData();
   const [form, setForm] = useState(letterSettings);
   const [savedNotice, setSavedNotice] = useState(false);
 
@@ -281,51 +281,105 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.requests, public.request_it
               />
             </div>
 
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Default CVM Signatory Name</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={form.signatoryNameCvm}
-                  onChange={e => setForm({ ...form, signatoryNameCvm: e.target.value })}
-                  required
-                />
-              </div>
+            <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+              <label className="form-label" style={{ fontWeight: 700, color: '#1e293b' }}>
+                Quick Select CVM Signatory Authority
+              </label>
+              <select
+                className="form-control"
+                style={{ marginBottom: 12 }}
+                onChange={e => {
+                  const auth = authorities.find(a => a.id === e.target.value);
+                  if (auth) {
+                    setForm(prev => ({
+                      ...prev,
+                      signatoryNameCvm: auth.officer_name || prev.signatoryNameCvm,
+                      signatoryTitleCvm: auth.title || prev.signatoryTitleCvm
+                    }));
+                  }
+                }}
+              >
+                <option value="">-- Choose CVM Authority to Populate Fields Below --</option>
+                {authorities.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.title} {a.officer_name ? `— ${a.officer_name}` : ''}
+                  </option>
+                ))}
+              </select>
 
-              <div className="form-group">
-                <label className="form-label">Default CVM Signatory Title</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={form.signatoryTitleCvm}
-                  onChange={e => setForm({ ...form, signatoryTitleCvm: e.target.value })}
-                  required
-                />
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Default CVM Signatory Name</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={form.signatoryNameCvm}
+                    onChange={e => setForm({ ...form, signatoryNameCvm: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Default CVM Signatory Title</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={form.signatoryTitleCvm}
+                    onChange={e => setForm({ ...form, signatoryTitleCvm: e.target.value })}
+                    required
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Default CVMU Signatory Name</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={form.signatoryNameCvmu}
-                  onChange={e => setForm({ ...form, signatoryNameCvmu: e.target.value })}
-                  required
-                />
-              </div>
+            <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+              <label className="form-label" style={{ fontWeight: 700, color: '#1e293b' }}>
+                Quick Select CVMU Signatory Authority
+              </label>
+              <select
+                className="form-control"
+                style={{ marginBottom: 12 }}
+                onChange={e => {
+                  const auth = authorities.find(a => a.id === e.target.value);
+                  if (auth) {
+                    setForm(prev => ({
+                      ...prev,
+                      signatoryNameCvmu: auth.officer_name || prev.signatoryNameCvmu,
+                      signatoryTitleCvmu: auth.title || prev.signatoryTitleCvmu
+                    }));
+                  }
+                }}
+              >
+                <option value="">-- Choose CVMU Authority to Populate Fields Below --</option>
+                {authorities.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.title} {a.officer_name ? `— ${a.officer_name}` : ''}
+                  </option>
+                ))}
+              </select>
 
-              <div className="form-group">
-                <label className="form-label">Default CVMU Signatory Title</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={form.signatoryTitleCvmu}
-                  onChange={e => setForm({ ...form, signatoryTitleCvmu: e.target.value })}
-                  required
-                />
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Default CVMU Signatory Name</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={form.signatoryNameCvmu}
+                    onChange={e => setForm({ ...form, signatoryNameCvmu: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Default CVMU Signatory Title</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={form.signatoryTitleCvmu}
+                    onChange={e => setForm({ ...form, signatoryTitleCvmu: e.target.value })}
+                    required
+                  />
+                </div>
               </div>
             </div>
 

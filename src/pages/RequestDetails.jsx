@@ -281,11 +281,24 @@ export const RequestDetails = () => {
   const handleOpenLetterModal = () => {
     const nextNo = getNextLetterNo(org?.code || 'CVM');
     const isCvmu = org?.code === 'CVMU';
+
+    const latestApprAuth = authorities.find(a => a.id === latestApproval?.authority_id);
+    const defaultAuth = latestApprAuth || availableAuthorities[0] || authorities[0];
+
+    const initialSignatoryName = request.approval_letter?.signatory_name ||
+      defaultAuth?.officer_name ||
+      (isCvmu ? letterSettings.signatoryNameCvmu : letterSettings.signatoryNameCvm);
+
+    const initialSignatoryTitle = request.approval_letter?.signatory_title ||
+      defaultAuth?.title ||
+      (isCvmu ? letterSettings.signatoryTitleCvmu : letterSettings.signatoryTitleCvm);
+
     setLetterForm({
+      authority_id: defaultAuth?.id || '',
       letter_no: request.approval_letter?.letter_no || nextNo,
       letter_date: request.approval_letter?.letter_date || new Date().toISOString().split('T')[0],
-      signatory_title: isCvmu ? letterSettings.signatoryTitleCvmu : letterSettings.signatoryTitleCvm,
-      signatory_name: isCvmu ? letterSettings.signatoryNameCvmu : letterSettings.signatoryNameCvm,
+      signatory_title: initialSignatoryTitle,
+      signatory_name: initialSignatoryName,
       subject: request.approval_letter?.subject || `Sanction order for ${request.title}`,
       dispatch_date: request.approval_letter?.dispatch_date || new Date().toISOString().split('T')[0],
       dispatch_mode: request.approval_letter?.dispatch_mode || 'Internal Dispatch',
@@ -1635,27 +1648,94 @@ export const RequestDetails = () => {
                   </div>
                 </div>
 
+                {/* Signatory Authority Selection Dropdown */}
+                <div className="form-group" style={{ background: '#f8fafc', padding: 14, borderRadius: 6, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+                  <label className="form-label" style={{ fontWeight: 700, color: '#1e293b' }}>
+                    Select Signatory Authority (All Authorities)
+                  </label>
+                  <select
+                    className="form-control"
+                    value={letterForm.authority_id || ''}
+                    onChange={e => {
+                      const authId = e.target.value;
+                      const selected = authorities.find(a => a.id === authId);
+                      if (selected) {
+                        setLetterForm(prev => ({
+                          ...prev,
+                          authority_id: authId,
+                          signatory_name: selected.officer_name || prev.signatory_name,
+                          signatory_title: selected.title || prev.signatory_title
+                        }));
+                      } else {
+                        setLetterForm(prev => ({ ...prev, authority_id: '' }));
+                      }
+                    }}
+                  >
+                    <option value="">-- Choose Authority from All Authorities to Auto-Fill --</option>
+                    <optgroup label="CVM (Charutar Vidya Mandal) Authorities">
+                      {authorities.filter(a => a.org_id === 'org-cvm' || a.org_code === 'CVM').map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.title} {a.officer_name ? `— ${a.officer_name}` : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="CVMU (CVM University) Authorities">
+                      {authorities.filter(a => a.org_id === 'org-cvmu' || a.org_code === 'CVMU').map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.title} {a.officer_name ? `— ${a.officer_name}` : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                    {authorities.filter(a => a.org_id !== 'org-cvm' && a.org_id !== 'org-cvmu' && a.org_code !== 'CVM' && a.org_code !== 'CVMU').length > 0 && (
+                      <optgroup label="Other Authorized Officials">
+                        {authorities.filter(a => a.org_id !== 'org-cvm' && a.org_id !== 'org-cvmu' && a.org_code !== 'CVM' && a.org_code !== 'CVMU').map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.title} {a.officer_name ? `— ${a.officer_name}` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                    Selecting any authority automatically updates the Signatory Name and Title below.
+                  </div>
+                </div>
+
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Signatory Name <span className="required">*</span></label>
                     <input
                       type="text"
+                      list="signatory-officers-datalist"
                       className="form-control"
                       value={letterForm.signatory_name}
                       onChange={e => setLetterForm({ ...letterForm, signatory_name: e.target.value })}
+                      placeholder="e.g. Shri Prayasvin Patel / Dr. J. D. Patel"
                       required
                     />
+                    <datalist id="signatory-officers-datalist">
+                      {Array.from(new Set(authorities.map(a => a.officer_name).filter(Boolean))).map(name => (
+                        <option key={name} value={name} />
+                      ))}
+                    </datalist>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Signatory Title <span className="required">*</span></label>
+                    <label className="form-label">Signatory Title / Designation <span className="required">*</span></label>
                     <input
                       type="text"
+                      list="signatory-titles-datalist"
                       className="form-control"
                       value={letterForm.signatory_title}
                       onChange={e => setLetterForm({ ...letterForm, signatory_title: e.target.value })}
+                      placeholder="e.g. Chairman / Registrar / Hon. Joint Secretary"
                       required
                     />
+                    <datalist id="signatory-titles-datalist">
+                      {Array.from(new Set(authorities.map(a => a.title).filter(Boolean))).map(title => (
+                        <option key={title} value={title} />
+                      ))}
+                    </datalist>
                   </div>
                 </div>
 
