@@ -1369,14 +1369,51 @@ export const DataProvider = ({ children }) => {
 
   // 11. Delete Request
   const deleteRequest = async (reqId) => {
-    const req = requests.find(r => r.id === reqId);
-    setRequests(prev => prev.filter(r => r.id !== reqId));
-    logAudit('DELETE_REQUEST', 'request', req?.request_no || reqId, { id: reqId });
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    const targetId = req ? req.id : reqId;
+    const targetNo = req?.request_no;
+
+    // 1. Instantly update React state
+    setRequests(prev => prev.filter(r => r.id !== targetId && r.request_no !== targetNo && r.id !== reqId));
+    setDocuments(prev => prev.filter(d => d.request_id !== targetId && d.request_id !== targetNo && d.request_id !== reqId));
+
+    // 2. Instantly update localStorage
+    try {
+      const currentStored = JSON.parse(localStorage.getItem('noc_requests') || '[]');
+      const updatedStored = currentStored.filter(r => r.id !== targetId && r.request_no !== targetNo && r.id !== reqId);
+      localStorage.setItem('noc_requests', JSON.stringify(updatedStored));
+    } catch (e) {}
+
+    logAudit('DELETE_REQUEST', 'request', targetNo || String(targetId), { id: targetId, request_no: targetNo });
     notifyCrossTab();
 
+    // 3. Delete from Supabase cloud database
     if (activeClient) {
       try {
-        await activeClient.from('requests').delete().eq('id', reqId);
+        if (isUUID(targetId)) {
+          // Delete child records first to ensure no constraint violations
+          await activeClient.from('documents').delete().eq('request_id', targetId);
+          await activeClient.from('bills').delete().eq('request_id', targetId);
+          await activeClient.from('work_status_history').delete().eq('request_id', targetId);
+          await activeClient.from('work_records').delete().eq('request_id', targetId);
+          await activeClient.from('approval_letters').delete().eq('request_id', targetId);
+          await activeClient.from('approvals').delete().eq('request_id', targetId);
+          await activeClient.from('quotations').delete().eq('request_id', targetId);
+          await activeClient.from('request_items').delete().eq('request_id', targetId);
+
+          const { error } = await activeClient.from('requests').delete().eq('id', targetId);
+          if (error) {
+            console.error('Failed to delete request from Supabase by UUID:', error);
+            if (targetNo) {
+              await activeClient.from('requests').delete().eq('request_no', targetNo);
+            }
+          }
+        } else if (targetNo) {
+          const { error } = await activeClient.from('requests').delete().eq('request_no', targetNo);
+          if (error) {
+            console.error('Failed to delete request from Supabase by request_no:', error);
+          }
+        }
       } catch (err) {
         console.error('Failed to delete request from Supabase:', err);
       }
