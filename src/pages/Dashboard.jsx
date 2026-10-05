@@ -21,7 +21,7 @@ import { formatCurrency, formatDate } from '../utils/pdfGenerator';
 import { StatusBadge } from '../components/StatusBadge';
 
 export const Dashboard = () => {
-  const { requests, institutes, agencies, organizations } = useData();
+  const { requests, institutes, agencies, organizations, syncStatus, syncError, isConfigured } = useData();
   const navigate = useNavigate();
 
   // Metrics Calculations
@@ -65,6 +65,31 @@ export const Dashboard = () => {
           </Link>
         </div>
       </div>
+
+      {/* Sync Status Banner */}
+      {!isConfigured && (
+        <div className="alert alert-info" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertCircle size={16} />
+            <span><strong>Offline / Local Storage Engine Active:</strong> Requests created on this device are saved in browser storage. To synchronize across laptops and mobile phones in real-time, connect your Supabase database in Settings.</span>
+          </div>
+          <Link to="/settings" className="btn btn-secondary btn-sm" style={{ whiteSpace: 'nowrap', marginLeft: 12 }}>
+            Configure Cloud Sync →
+          </Link>
+        </div>
+      )}
+
+      {isConfigured && syncError && (
+        <div className="alert alert-danger" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertCircle size={16} />
+            <span><strong>Cloud Sync Warning:</strong> {syncError}</span>
+          </div>
+          <Link to="/settings" className="btn btn-secondary btn-sm" style={{ whiteSpace: 'nowrap', marginLeft: 12 }}>
+            Check Settings →
+          </Link>
+        </div>
+      )}
 
       {/* Primary Key Metrics Grid */}
       <div className="metrics-grid">

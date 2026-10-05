@@ -13,7 +13,7 @@ import {
   DEFAULT_USERS
 } from '../data/initialData';
 import { useAuth } from './AuthContext';
-import { supabase, isSupabaseConfigured } from '../supabaseClient';
+import { supabase as initialSupabase, isSupabaseConfigured as initialIsConfigured, getActiveSupabaseUrl, getActiveSupabaseAnonKey } from '../supabaseClient';
 
 const DataContext = createContext(null);
 
@@ -41,10 +41,15 @@ export const DataProvider = ({ children }) => {
   const { currentUser } = useAuth();
   const broadcastChannelRef = useRef(null);
 
+  // Client references that can dynamically update
+  const [activeClient, setActiveClient] = useState(() => initialSupabase);
+  const [isConfigured, setIsConfigured] = useState(() => initialIsConfigured);
+
   // Sync state tracking
-  const [syncStatus, setSyncStatus] = useState(isSupabaseConfigured ? 'syncing' : 'local');
+  const [syncStatus, setSyncStatus] = useState(initialIsConfigured ? 'syncing' : 'local');
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [syncError, setSyncError] = useState(null);
+  const [migrationStatus, setMigrationStatus] = useState({ migrating: false, message: '' });
 
   // Master State initialized with LocalStorage Cache / Seed Fallback
   const [organizations, setOrganizations] = useState(() => {
@@ -134,6 +139,18 @@ export const DataProvider = ({ children }) => {
   useEffect(() => { localStorage.setItem('noc_stock_notes', JSON.stringify(stockNotes)); }, [stockNotes]);
   useEffect(() => { localStorage.setItem('noc_letter_settings', JSON.stringify(letterSettings)); }, [letterSettings]);
 
+  // Handle Runtime Supabase Configuration Changes
+  useEffect(() => {
+    const handleConfigChange = (e) => {
+      setActiveClient(e.detail?.client || null);
+      setIsConfigured(Boolean(e.detail?.isConfigured));
+      setSyncStatus(e.detail?.isConfigured ? 'syncing' : 'local');
+    };
+
+    window.addEventListener('noc_supabase_config_changed', handleConfigChange);
+    return () => window.removeEventListener('noc_supabase_config_changed', handleConfigChange);
+  }, []);
+
   // Cross-Tab / Cross-Window Synchronization via BroadcastChannel
   useEffect(() => {
     if (typeof BroadcastChannel !== 'undefined') {
@@ -142,7 +159,7 @@ export const DataProvider = ({ children }) => {
         broadcastChannelRef.current = bc;
         bc.onmessage = (event) => {
           if (event.data?.type === 'REFETCH') {
-            if (isSupabaseConfigured && supabase) {
+            if (activeClient) {
               fetchCloudData();
             } else {
               const savedReqs = localStorage.getItem('noc_requests');
@@ -157,7 +174,7 @@ export const DataProvider = ({ children }) => {
         console.warn('BroadcastChannel not available:', err);
       }
     }
-  }, []);
+  }, [activeClient]);
 
   const notifyCrossTab = () => {
     if (broadcastChannelRef.current) {
@@ -184,8 +201,8 @@ export const DataProvider = ({ children }) => {
     };
     setAuditLogs(prev => [newLog, ...prev]);
 
-    if (isSupabaseConfigured && supabase) {
-      supabase
+    if (activeClient) {
+      activeClient
         .from('audit_logs')
         .insert({
           id: newLog.id,
@@ -203,7 +220,7 @@ export const DataProvider = ({ children }) => {
         })
         .catch(err => console.warn('Supabase audit log catch:', err));
     }
-  }, [currentUser]);
+  }, [currentUser, activeClient]);
 
   // Transform Supabase Relational Request into Frontend Structure
   const transformSupabaseRequest = (row) => {
@@ -329,9 +346,97 @@ export const DataProvider = ({ children }) => {
     };
   };
 
+  // Safe Migration of Local Laptop Requests to Supabase Cloud
+  const syncLocalToCloud = useCallback(async () => {
+    if (!activeClient) {
+      return { ok: false, message: 'Supabase is not connected. Configure Supabase in Settings first.' };
+    }
+
+    setMigrationStatus({ migrating: true, message: 'Checking cloud database records...' });
+    let migratedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+
+    try {
+      // Get all existing request numbers from Supabase
+      const { data: cloudReqs, error: fetchErr } = await activeClient.from('requests').select('request_no');
+      if (fetchErr) {
+        throw new Error(`Failed to query Supabase: ${fetchErr.message}`);
+      }
+
+      const existingNos = new Set((cloudReqs || []).map(r => r.request_no));
+
+      // Get current local requests
+      const savedRaw = localStorage.getItem('noc_requests');
+      const localList = savedRaw ? JSON.parse(savedRaw) : requests;
+
+      for (const req of localList) {
+        if (!existingNos.has(req.request_no)) {
+          // Unmigrated request (e.g. created on laptop in local mode)
+          const targetReqId = isUUID(req.id) ? req.id : generateUUID();
+          const { error: insErr } = await activeClient.from('requests').insert({
+            id: targetReqId,
+            request_no: req.request_no,
+            org_id: isUUID(req.org_id) ? req.org_id : null,
+            institute_id: isUUID(req.institute_id) ? req.institute_id : null,
+            request_date: req.request_date || new Date().toISOString().split('T')[0],
+            clg_out_no: req.clg_out_no || null,
+            clg_in_no: req.clg_in_no || null,
+            request_type: req.request_type || 'New Purchase',
+            title: req.title,
+            description: req.description || null,
+            estimated_budget: req.estimated_budget,
+            current_stage: req.current_stage || 'requirement',
+            overall_status: req.overall_status || 'Pending Quotations',
+            internal_notes: req.internal_notes || null,
+            is_historical: Boolean(req.is_historical),
+            historical_notes: req.historical_notes || null,
+            created_at: req.created_at || new Date().toISOString()
+          });
+
+          if (insErr) {
+            console.warn(`Error migrating request ${req.request_no}:`, insErr.message);
+            errors.push(`${req.request_no}: ${insErr.message}`);
+          } else {
+            migratedCount++;
+            // Migrate items
+            if (req.items && req.items.length > 0) {
+              const itemPayloads = req.items.map(it => ({
+                id: isUUID(it.id) ? it.id : generateUUID(),
+                request_id: targetReqId,
+                item_name: it.item_name,
+                category: it.category || 'General',
+                quantity: parseInt(it.quantity) || 1,
+                unit: it.unit || 'Nos',
+                specifications: it.specifications || null,
+                estimated_unit_price: it.estimated_unit_price
+              }));
+              await activeClient.from('request_items').insert(itemPayloads);
+            }
+          }
+        } else {
+          skippedCount++;
+        }
+      }
+
+      setMigrationStatus({
+        migrating: false,
+        message: `Migration complete: ${migratedCount} local requests uploaded to cloud, ${skippedCount} already synced.`
+      });
+
+      // Refetch from cloud after migration
+      fetchCloudData();
+      return { ok: true, migratedCount, skippedCount, errors };
+    } catch (err) {
+      console.error('Migration failed:', err);
+      setMigrationStatus({ migrating: false, message: `Migration error: ${err.message}` });
+      return { ok: false, message: err.message };
+    }
+  }, [activeClient, requests]);
+
   // Fetch Entire Cloud Data from Supabase
   const fetchCloudData = useCallback(async () => {
-    if (!isSupabaseConfigured || !supabase) {
+    if (!activeClient) {
       setSyncStatus('local');
       return;
     }
@@ -351,14 +456,14 @@ export const DataProvider = ({ children }) => {
         auditRes,
         reqsRes
       ] = await Promise.all([
-        supabase.from('organizations').select('*').order('code'),
-        supabase.from('institutes').select('*').order('name'),
-        supabase.from('agencies').select('*').order('name'),
-        supabase.from('approval_authorities').select('*').order('sort_order'),
-        supabase.from('historical_stock_notes').select('*'),
-        supabase.from('documents').select('*').order('created_at', { ascending: false }),
-        supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
-        supabase.from('requests').select(`
+        activeClient.from('organizations').select('*').order('code'),
+        activeClient.from('institutes').select('*').order('name'),
+        activeClient.from('agencies').select('*').order('name'),
+        activeClient.from('approval_authorities').select('*').order('sort_order'),
+        activeClient.from('historical_stock_notes').select('*'),
+        activeClient.from('documents').select('*').order('created_at', { ascending: false }),
+        activeClient.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
+        activeClient.from('requests').select(`
           *,
           items:request_items(*),
           quotations(*, quotation_items(*)),
@@ -368,6 +473,10 @@ export const DataProvider = ({ children }) => {
           bills(*)
         `).order('created_at', { ascending: false })
       ]);
+
+      if (reqsRes.error) {
+        throw new Error(reqsRes.error.message);
+      }
 
       if (orgsRes.data && orgsRes.data.length > 0) {
         setOrganizations(orgsRes.data);
@@ -395,9 +504,6 @@ export const DataProvider = ({ children }) => {
       if (reqsRes.data && reqsRes.data.length > 0) {
         const transformed = reqsRes.data.map(transformSupabaseRequest);
         setRequests(transformed);
-      } else if (reqsRes.data && reqsRes.data.length === 0) {
-        // If Supabase requests table is empty, auto-seed with initial sample requests
-        console.info('Supabase requests table is empty. Keeping local / initial seed requests.');
       }
 
       setSyncStatus('synced');
@@ -407,11 +513,11 @@ export const DataProvider = ({ children }) => {
       setSyncStatus('error');
       setSyncError(err.message);
     }
-  }, []);
+  }, [activeClient]);
 
   // Initialize Real-time Cloud Connection and Event Subscriptions
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
+    if (!activeClient) {
       setSyncStatus('local');
       return;
     }
@@ -419,7 +525,7 @@ export const DataProvider = ({ children }) => {
     fetchCloudData();
 
     // Subscribe to all changes on public schema tables
-    const channel = supabase
+    const channel = activeClient
       .channel('noc-global-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, () => {
         fetchCloudData();
@@ -464,11 +570,11 @@ export const DataProvider = ({ children }) => {
     window.addEventListener('online', onOnline);
 
     return () => {
-      supabase.removeChannel(channel);
+      activeClient.removeChannel(channel);
       window.removeEventListener('focus', onWindowFocus);
       window.removeEventListener('online', onOnline);
     };
-  }, [fetchCloudData]);
+  }, [activeClient, fetchCloudData]);
 
   // Helper to generate Next Request Number e.g. NOC-2026-0002
   const getNextRequestNo = () => {
@@ -533,9 +639,9 @@ export const DataProvider = ({ children }) => {
     notifyCrossTab();
 
     // Supabase Cloud Persistence
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        const { error: reqErr } = await supabase.from('requests').insert({
+        const { error: reqErr } = await activeClient.from('requests').insert({
           id: newReqId,
           request_no: reqNo,
           org_id: isUUID(newRequest.org_id) ? newRequest.org_id : null,
@@ -555,23 +661,29 @@ export const DataProvider = ({ children }) => {
           created_at: newRequest.created_at
         });
 
-        if (reqErr) console.warn('Supabase createRequest error:', reqErr.message);
-
-        if (newRequest.items.length > 0) {
-          const itemsPayload = newRequest.items.map(it => ({
-            id: it.id,
-            request_id: newReqId,
-            item_name: it.item_name,
-            category: it.category,
-            quantity: it.quantity,
-            unit: it.unit,
-            specifications: it.specifications || null,
-            estimated_unit_price: it.estimated_unit_price
-          }));
-          await supabase.from('request_items').insert(itemsPayload);
+        if (reqErr) {
+          console.error('Supabase createRequest error:', reqErr.message);
+          setSyncStatus('error');
+          setSyncError(`Supabase write error: ${reqErr.message}`);
+        } else {
+          if (newRequest.items.length > 0) {
+            const itemsPayload = newRequest.items.map(it => ({
+              id: it.id,
+              request_id: newReqId,
+              item_name: it.item_name,
+              category: it.category,
+              quantity: it.quantity,
+              unit: it.unit,
+              specifications: it.specifications || null,
+              estimated_unit_price: it.estimated_unit_price
+            }));
+            await activeClient.from('request_items').insert(itemsPayload);
+          }
         }
       } catch (err) {
         console.error('Failed to sync new request to Supabase:', err);
+        setSyncStatus('error');
+        setSyncError(err.message);
       }
     }
 
@@ -590,7 +702,7 @@ export const DataProvider = ({ children }) => {
     }));
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
         const cloudUpdates = {};
         if (updates.title !== undefined) cloudUpdates.title = updates.title;
@@ -604,7 +716,7 @@ export const DataProvider = ({ children }) => {
         if (updates.overall_status !== undefined) cloudUpdates.overall_status = updates.overall_status;
         cloudUpdates.updated_at = new Date().toISOString();
 
-        await supabase.from('requests').update(cloudUpdates).eq('id', reqId);
+        await activeClient.from('requests').update(cloudUpdates).eq('id', reqId);
       } catch (err) {
         console.error('Failed to sync request update to Supabase:', err);
       }
@@ -671,9 +783,9 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('quotations').insert({
+        await activeClient.from('quotations').insert({
           id: quotId,
           request_id: reqId,
           agency_id: isUUID(newQuot.agency_id) ? newQuot.agency_id : null,
@@ -692,7 +804,7 @@ export const DataProvider = ({ children }) => {
           created_at: newQuot.created_at
         });
 
-        await supabase.from('requests').update({
+        await activeClient.from('requests').update({
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
@@ -729,12 +841,10 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        // Deselect all other quotations for this request
-        await supabase.from('quotations').update({ is_selected: false, selection_rationale: '' }).eq('request_id', reqId);
-        // Select the chosen one
-        await supabase.from('quotations').update({ is_selected: true, selection_rationale: rationale }).eq('id', quotId);
+        await activeClient.from('quotations').update({ is_selected: false, selection_rationale: '' }).eq('request_id', reqId);
+        await activeClient.from('quotations').update({ is_selected: true, selection_rationale: rationale }).eq('id', quotId);
       } catch (err) {
         console.error('Failed to sync quotation selection to Supabase:', err);
       }
@@ -795,9 +905,9 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('approvals').insert({
+        await activeClient.from('approvals').insert({
           id: apprId,
           request_id: reqId,
           authority_id: isUUID(newApproval.authority_id) ? newApproval.authority_id : null,
@@ -813,7 +923,7 @@ export const DataProvider = ({ children }) => {
           created_at: newApproval.created_at
         });
 
-        await supabase.from('requests').update({
+        await activeClient.from('requests').update({
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
@@ -879,9 +989,9 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('approval_letters').insert({
+        await activeClient.from('approval_letters').insert({
           id: letId,
           request_id: reqId,
           letter_no: letterNo,
@@ -898,9 +1008,8 @@ export const DataProvider = ({ children }) => {
           created_at: newLetter.created_at
         });
 
-        // Insert initial work record if none exists
         if (!req?.work_record) {
-          await supabase.from('work_records').insert({
+          await activeClient.from('work_records').insert({
             id: wrkId,
             request_id: reqId,
             agency_id: isUUID(initialWorkRecord.agency_id) ? initialWorkRecord.agency_id : null,
@@ -975,9 +1084,9 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase && updatedWorkRecord) {
+    if (activeClient && updatedWorkRecord) {
       try {
-        await supabase.from('work_records').upsert({
+        await activeClient.from('work_records').upsert({
           id: updatedWorkRecord.id,
           request_id: reqId,
           agency_id: isUUID(updatedWorkRecord.agency_id) ? updatedWorkRecord.agency_id : null,
@@ -989,7 +1098,7 @@ export const DataProvider = ({ children }) => {
           updated_at: new Date().toISOString()
         });
 
-        await supabase.from('work_status_history').insert({
+        await activeClient.from('work_status_history').insert({
           id: wshId,
           work_record_id: updatedWorkRecord.id,
           previous_status: req?.work_record?.status || 'Not Started',
@@ -999,7 +1108,7 @@ export const DataProvider = ({ children }) => {
           created_at: new Date().toISOString()
         });
 
-        await supabase.from('requests').update({
+        await activeClient.from('requests').update({
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
@@ -1053,9 +1162,9 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('bills').insert({
+        await activeClient.from('bills').insert({
           id: billId,
           request_id: reqId,
           agency_id: isUUID(newBill.agency_id) ? newBill.agency_id : null,
@@ -1071,7 +1180,7 @@ export const DataProvider = ({ children }) => {
           created_at: newBill.created_at
         });
 
-        await supabase.from('requests').update({
+        await activeClient.from('requests').update({
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
@@ -1103,9 +1212,9 @@ export const DataProvider = ({ children }) => {
     logAudit('CLOSE_REQUEST', 'request', req?.request_no, { reason: closureReason });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('requests').update({
+        await activeClient.from('requests').update({
           current_stage: 'closed',
           overall_status: 'Closed',
           internal_notes: (req?.internal_notes ? req.internal_notes + '\n' : '') + `Closed: ${closureReason}`,
@@ -1136,9 +1245,9 @@ export const DataProvider = ({ children }) => {
     logAudit('REOPEN_REQUEST', 'request', req?.request_no, { reason: reopenReason });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('requests').update({
+        await activeClient.from('requests').update({
           current_stage: 'in_progress',
           overall_status: 'Work In Progress',
           internal_notes: (req?.internal_notes ? req.internal_notes + '\n' : '') + `Reopened: ${reopenReason}`,
@@ -1157,9 +1266,9 @@ export const DataProvider = ({ children }) => {
     logAudit('DELETE_REQUEST', 'request', req?.request_no || reqId, { id: reqId });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('requests').delete().eq('id', reqId);
+        await activeClient.from('requests').delete().eq('id', reqId);
       } catch (err) {
         console.error('Failed to delete request from Supabase:', err);
       }
@@ -1192,9 +1301,9 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('documents').insert({
+        await activeClient.from('documents').insert({
           id: docId,
           request_id: reqId,
           category: newDoc.category,
@@ -1222,9 +1331,9 @@ export const DataProvider = ({ children }) => {
     logAudit('CREATE_INSTITUTE', 'institute', data.name, data);
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('institutes').insert({
+        await activeClient.from('institutes').insert({
           id,
           org_id: isUUID(data.org_id) ? data.org_id : null,
           name: data.name,
@@ -1247,9 +1356,9 @@ export const DataProvider = ({ children }) => {
     logAudit('UPDATE_INSTITUTE', 'institute', id, data);
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('institutes').update(data).eq('id', id);
+        await activeClient.from('institutes').update(data).eq('id', id);
       } catch (err) {
         console.error('Failed to sync institute update to Supabase:', err);
       }
@@ -1263,9 +1372,9 @@ export const DataProvider = ({ children }) => {
     logAudit('CREATE_AGENCY', 'agency', data.name, data);
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('agencies').insert({
+        await activeClient.from('agencies').insert({
           id,
           name: data.name,
           contact_person: data.contact_person || null,
@@ -1288,9 +1397,9 @@ export const DataProvider = ({ children }) => {
     logAudit('UPDATE_AGENCY', 'agency', id, data);
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('agencies').update(data).eq('id', id);
+        await activeClient.from('agencies').update(data).eq('id', id);
       } catch (err) {
         console.error('Failed to sync agency update to Supabase:', err);
       }
@@ -1304,9 +1413,9 @@ export const DataProvider = ({ children }) => {
     logAudit('CREATE_AUTHORITY', 'authority', data.title, data);
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('approval_authorities').insert({
+        await activeClient.from('approval_authorities').insert({
           id,
           org_id: isUUID(data.org_id) ? data.org_id : null,
           title: data.title,
@@ -1327,9 +1436,9 @@ export const DataProvider = ({ children }) => {
     logAudit('UPDATE_AUTHORITY', 'authority', id, data);
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
-        await supabase.from('approval_authorities').update(data).eq('id', id);
+        await activeClient.from('approval_authorities').update(data).eq('id', id);
       } catch (err) {
         console.error('Failed to sync authority update to Supabase:', err);
       }
@@ -1349,7 +1458,7 @@ export const DataProvider = ({ children }) => {
     logAudit('SYSTEM_RESET', 'system', 'factory_reset', { message: 'Reset all records to factory master data and historical examples.' });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       fetchCloudData();
     }
   };
@@ -1362,10 +1471,10 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
-    if (isSupabaseConfigured && supabase) {
+    if (activeClient) {
       try {
         for (const req of importedRequests) {
-          await supabase.from('requests').insert({
+          await activeClient.from('requests').insert({
             id: isUUID(req.id) ? req.id : generateUUID(),
             request_no: req.request_no,
             org_id: isUUID(req.org_id) ? req.org_id : null,
@@ -1403,6 +1512,9 @@ export const DataProvider = ({ children }) => {
         syncStatus,
         lastSyncTime,
         syncError,
+        isConfigured,
+        migrationStatus,
+        syncLocalToCloud,
         refetchData: fetchCloudData,
         createRequest,
         updateRequest,

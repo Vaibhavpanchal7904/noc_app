@@ -1,35 +1,51 @@
 // =====================================================================
-// Supabase Client Initialization & Connectivity Helper
+// Supabase Client Initialization & Dynamic Connectivity Engine
 // =====================================================================
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 const isValidHttpUrl = (string) => {
   if (!string || typeof string !== 'string') return false;
   try {
-    const url = new URL(string);
-    return url.protocol === 'http:' || url.protocol === 'https:';
+    const url = new URL(string.trim());
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.hostname.includes('your-project.supabase.co');
   } catch (_) {
     return false;
   }
 };
 
-export const isSupabaseConfigured = Boolean(
-  isValidHttpUrl(supabaseUrl) &&
-  supabaseAnonKey &&
-  !supabaseUrl.includes('your-project.supabase.co') &&
-  supabaseAnonKey !== 'your-anon-key' &&
-  supabaseAnonKey !== 'your-anon-key-here' &&
-  !supabaseUrl.startsWith('sb_publishable_')
-);
+const isValidAnonKey = (key) => {
+  if (!key || typeof key !== 'string') return false;
+  const trimmed = key.trim();
+  return trimmed.length > 20 && trimmed !== 'your-anon-key' && trimmed !== 'your-anon-key-here' && !trimmed.startsWith('sb_secret_');
+};
 
-let client = null;
-if (isSupabaseConfigured) {
+// Retrieve configured Supabase URL (from localStorage runtime config or build env)
+export const getActiveSupabaseUrl = () => {
+  const custom = typeof localStorage !== 'undefined' ? localStorage.getItem('noc_supabase_url') : null;
+  if (custom && isValidHttpUrl(custom)) return custom.trim();
+  const envUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (envUrl && isValidHttpUrl(envUrl)) return envUrl.trim();
+  return '';
+};
+
+// Retrieve configured Supabase Anon Key (from localStorage runtime config or build env)
+export const getActiveSupabaseAnonKey = () => {
+  const custom = typeof localStorage !== 'undefined' ? localStorage.getItem('noc_supabase_anon_key') : null;
+  if (custom && isValidAnonKey(custom)) return custom.trim();
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (envKey && isValidAnonKey(envKey)) return envKey.trim();
+  return '';
+};
+
+let activeClient = null;
+
+const createSupabaseInstance = (url, key) => {
+  if (!isValidHttpUrl(url) || !isValidAnonKey(key)) {
+    return null;
+  }
   try {
-    client = createClient(supabaseUrl, supabaseAnonKey, {
+    return createClient(url, key, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -42,9 +58,81 @@ if (isSupabaseConfigured) {
       }
     });
   } catch (err) {
-    console.error('Failed to initialize Supabase client:', err);
-    client = null;
+    console.error('Failed to create Supabase client:', err);
+    return null;
   }
-}
+};
 
-export const supabase = client;
+// Initialize default client
+const initialUrl = getActiveSupabaseUrl();
+const initialKey = getActiveSupabaseAnonKey();
+activeClient = createSupabaseInstance(initialUrl, initialKey);
+
+export let supabase = activeClient;
+export let isSupabaseConfigured = Boolean(activeClient && initialUrl && initialKey);
+
+// Update runtime Supabase config and recreate client
+export const setRuntimeSupabaseConfig = (url, key) => {
+  const cleanUrl = url ? url.trim() : '';
+  const cleanKey = key ? key.trim() : '';
+
+  if (cleanUrl) {
+    localStorage.setItem('noc_supabase_url', cleanUrl);
+  } else {
+    localStorage.removeItem('noc_supabase_url');
+  }
+
+  if (cleanKey) {
+    localStorage.setItem('noc_supabase_anon_key', cleanKey);
+  } else {
+    localStorage.removeItem('noc_supabase_anon_key');
+  }
+
+  activeClient = createSupabaseInstance(getActiveSupabaseUrl(), getActiveSupabaseAnonKey());
+  supabase = activeClient;
+  isSupabaseConfigured = Boolean(activeClient);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('noc_supabase_config_changed', {
+      detail: { client: activeClient, url: cleanUrl, isConfigured: isSupabaseConfigured }
+    }));
+  }
+
+  return isSupabaseConfigured;
+};
+
+// Test connection to Supabase project
+export const testSupabaseConnection = async (testUrl, testKey) => {
+  const targetUrl = testUrl ? testUrl.trim() : getActiveSupabaseUrl();
+  const targetKey = testKey ? testKey.trim() : getActiveSupabaseAnonKey();
+
+  if (!isValidHttpUrl(targetUrl)) {
+    return { ok: false, message: 'Invalid Supabase Project URL. Must start with https:// (e.g. https://xyz.supabase.co)' };
+  }
+
+  if (!isValidAnonKey(targetKey)) {
+    return { ok: false, message: 'Invalid Supabase Anon Key. Must be a valid project anon public key.' };
+  }
+
+  try {
+    const tempClient = createClient(targetUrl, targetKey);
+    const { data, error } = await tempClient.from('organizations').select('count', { count: 'exact', head: true });
+    
+    if (error) {
+      return { 
+        ok: false, 
+        message: `Supabase returned an error: ${error.message} (Code: ${error.code || 'UNKNOWN'}). Verify database migrations and RLS policies.` 
+      };
+    }
+
+    return { 
+      ok: true, 
+      message: 'Successfully connected to Supabase database! Organizations table verified.' 
+    };
+  } catch (err) {
+    return { 
+      ok: false, 
+      message: `Connection failed: ${err.message || 'Network error connecting to Supabase.'}` 
+    };
+  }
+};
