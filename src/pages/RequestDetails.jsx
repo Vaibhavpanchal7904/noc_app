@@ -766,7 +766,7 @@ export const RequestDetails = () => {
             <div>
               <h2 style={{ fontSize: 16, fontWeight: 700 }}>Competent Authority Approval & Sanctions</h2>
               <div style={{ fontSize: 12, color: '#64748b' }}>
-                CVM Chairman, Hon. Joint Secretary, CVMU President, Provost, or Registrar approvals
+                {org?.code === 'CVMU' ? 'CVMU President, Provost, Registrar' : 'CVM Chairman, Hon. Joint Secretary'} formal approval orders
               </div>
             </div>
             {permissions.canApprove && (
@@ -775,6 +775,43 @@ export const RequestDetails = () => {
               </button>
             )}
           </div>
+
+          {/* Selected Vendor for Approval Banner */}
+          {selectedQuot && (
+            <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid #2563eb', background: '#f8fafc' }}>
+              <div className="card-body" style={{ padding: '16px 20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Quotation Selected for Sanction
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>
+                      {agencies.find(a => a.id === selectedQuot.agency_id)?.name || 'Selected Vendor'}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#475569', marginTop: 4 }}>
+                      Quoted Total: <strong style={{ fontFamily: 'var(--font-mono)', color: '#0f172a' }}>{formatCurrency(selectedQuot.total_amount)}</strong> (Tax: {selectedQuot.tax_percent}%)
+                      {selectedQuot.quotation_no && ` • Ref: ${selectedQuot.quotation_no}`}
+                    </div>
+                    {selectedQuot.selection_rationale && (
+                      <div style={{ fontSize: 12, color: '#166534', marginTop: 6, background: '#dcfce7', padding: '6px 10px', borderRadius: 4, display: 'inline-block' }}>
+                        <strong>Selection Justification:</strong> "{selectedQuot.selection_rationale}"
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      Authority Scope: <strong>{org?.name} ({org?.code})</strong>
+                    </div>
+                    {permissions.canApprove && (
+                      <button className="btn btn-primary btn-sm" onClick={handleOpenApprovalModal}>
+                        <CheckSquare size={14} /> Submit for Sanction Order
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="card">
             <div className="card-body" style={{ padding: 0 }}>
@@ -828,10 +865,25 @@ export const RequestDetails = () => {
                         <td colSpan={9}>
                           <div className="empty-state">
                             <CheckSquare className="empty-state-icon" />
-                            <div className="empty-state-title">Awaiting Approval Submission</div>
-                            <div className="empty-state-desc">
-                              Select a vendor quotation and submit to the competent approval authority.
+                            <div className="empty-state-title">
+                              {selectedQuot ? 'Ready for Authority Sanction' : 'Awaiting Quotation Selection'}
                             </div>
+                            <div className="empty-state-desc">
+                              {selectedQuot
+                                ? `Selected vendor "${agencies.find(a => a.id === selectedQuot.agency_id)?.name || 'Vendor'}" (${formatCurrency(selectedQuot.total_amount)}) is ready to be submitted for approval to ${org?.code === 'CVMU' ? 'CVMU President / Provost / Registrar' : 'CVM Chairman / Hon. Joint Secretary'}.`
+                                : 'Select a vendor quotation from the Quotations tab and submit to the competent approval authority.'}
+                            </div>
+                            {selectedQuot ? (
+                              permissions.canApprove && (
+                                <button className="btn btn-primary" onClick={handleOpenApprovalModal} style={{ marginTop: 12 }}>
+                                  <CheckSquare size={16} /> Submit to Competent Authority Now
+                                </button>
+                              )
+                            ) : (
+                              <button className="btn btn-secondary" onClick={() => switchTab('quotations')} style={{ marginTop: 12 }}>
+                                Go to Quotations Tab &rarr;
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

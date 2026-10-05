@@ -435,8 +435,20 @@ export const DataProvider = ({ children }) => {
         localList = [];
       }
 
+      let deletedIds = [];
+      try {
+        deletedIds = JSON.parse(localStorage.getItem('noc_deleted_ids') || '[]');
+      } catch (_) {
+        deletedIds = [];
+      }
+      const deletedSet = new Set(deletedIds);
+
       for (const req of localList) {
         if (!req || !req.request_no) continue;
+        if (deletedSet.has(req.id) || deletedSet.has(req.request_no)) {
+          skippedCount++;
+          continue;
+        }
         if (existingNos.has(req.request_no)) {
           skippedCount++;
           continue;
@@ -584,7 +596,17 @@ export const DataProvider = ({ children }) => {
         }
 
         if (reqsRes.data) {
-          const transformed = reqsRes.data.map(transformSupabaseRequest);
+          let deletedIds = [];
+          try {
+            deletedIds = JSON.parse(localStorage.getItem('noc_deleted_ids') || '[]');
+          } catch (_) {
+            deletedIds = [];
+          }
+          const deletedSet = new Set(deletedIds);
+
+          const transformed = reqsRes.data
+            .map(transformSupabaseRequest)
+            .filter(r => !deletedSet.has(r.id) && !deletedSet.has(r.request_no));
           setRequests(transformed);
         }
         if (docsRes.data) {
@@ -924,22 +946,26 @@ export const DataProvider = ({ children }) => {
 
   // 4. Select Quotation with Rationale
   const selectQuotation = async (reqId, quotId, rationale) => {
-    setRequests(prev => prev.map(req => {
-      if (req.id === reqId) {
-        const updatedQuots = (req.quotations || []).map(q => ({
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    const targetId = req ? req.id : reqId;
+
+    setRequests(prev => prev.map(r => {
+      if (r.id === targetId || r.request_no === reqId || r.id === reqId) {
+        const updatedQuots = (r.quotations || []).map(q => ({
           ...q,
           is_selected: q.id === quotId,
           selection_rationale: q.id === quotId ? rationale : ''
         }));
         return {
-          ...req,
+          ...r,
+          current_stage: 'approval_pending',
+          overall_status: 'Awaiting Approval',
           quotations: updatedQuots
         };
       }
-      return req;
+      return r;
     }));
 
-    const req = requests.find(r => r.id === reqId);
     logAudit('SELECT_QUOTATION', 'quotation', quotId, {
       request_no: req?.request_no,
       rationale
@@ -948,8 +974,23 @@ export const DataProvider = ({ children }) => {
 
     if (activeClient) {
       try {
-        await activeClient.from('quotations').update({ is_selected: false, selection_rationale: '' }).eq('request_id', reqId);
-        await activeClient.from('quotations').update({ is_selected: true, selection_rationale: rationale }).eq('id', quotId);
+        if (isUUID(targetId)) {
+          await activeClient.from('quotations').update({ is_selected: false, selection_rationale: '' }).eq('request_id', targetId);
+          if (isUUID(quotId)) {
+            await activeClient.from('quotations').update({ is_selected: true, selection_rationale: rationale }).eq('id', quotId);
+          }
+          await activeClient.from('requests').update({
+            current_stage: 'approval_pending',
+            overall_status: 'Awaiting Approval',
+            updated_at: new Date().toISOString()
+          }).eq('id', targetId);
+        } else if (req?.request_no) {
+          await activeClient.from('requests').update({
+            current_stage: 'approval_pending',
+            overall_status: 'Awaiting Approval',
+            updated_at: new Date().toISOString()
+          }).eq('request_no', req.request_no);
+        }
       } catch (err) {
         console.error('Failed to sync quotation selection to Supabase:', err);
       }
@@ -1373,6 +1414,15 @@ export const DataProvider = ({ children }) => {
     const targetId = req ? req.id : reqId;
     const targetNo = req?.request_no;
 
+    // Track tombstone to prevent resurrection from cache or delayed sync
+    try {
+      const deletedIds = JSON.parse(localStorage.getItem('noc_deleted_ids') || '[]');
+      if (targetId && !deletedIds.includes(targetId)) deletedIds.push(targetId);
+      if (targetNo && !deletedIds.includes(targetNo)) deletedIds.push(targetNo);
+      if (reqId && !deletedIds.includes(reqId)) deletedIds.push(reqId);
+      localStorage.setItem('noc_deleted_ids', JSON.stringify(deletedIds.slice(-300)));
+    } catch (_) {}
+
     // 1. Instantly update React state
     setRequests(prev => prev.filter(r => r.id !== targetId && r.request_no !== targetNo && r.id !== reqId));
     setDocuments(prev => prev.filter(d => d.request_id !== targetId && d.request_id !== targetNo && d.request_id !== reqId));
@@ -1391,13 +1441,14 @@ export const DataProvider = ({ children }) => {
     if (activeClient) {
       try {
         if (isUUID(targetId)) {
-          // Delete child records first to ensure no constraint violations
+          // Delete child records first to ensure no foreign key constraint issues
           await activeClient.from('documents').delete().eq('request_id', targetId);
           await activeClient.from('bills').delete().eq('request_id', targetId);
           await activeClient.from('work_status_history').delete().eq('request_id', targetId);
           await activeClient.from('work_records').delete().eq('request_id', targetId);
           await activeClient.from('approval_letters').delete().eq('request_id', targetId);
           await activeClient.from('approvals').delete().eq('request_id', targetId);
+          await activeClient.from('quotation_items').delete().eq('request_id', targetId);
           await activeClient.from('quotations').delete().eq('request_id', targetId);
           await activeClient.from('request_items').delete().eq('request_id', targetId);
 
@@ -1407,15 +1458,18 @@ export const DataProvider = ({ children }) => {
             if (targetNo) {
               await activeClient.from('requests').delete().eq('request_no', targetNo);
             }
+            throw new Error(`Database error deleting request: ${error.message}`);
           }
         } else if (targetNo) {
           const { error } = await activeClient.from('requests').delete().eq('request_no', targetNo);
           if (error) {
             console.error('Failed to delete request from Supabase by request_no:', error);
+            throw new Error(`Database error deleting request: ${error.message}`);
           }
         }
       } catch (err) {
         console.error('Failed to delete request from Supabase:', err);
+        throw err;
       }
     }
   };
