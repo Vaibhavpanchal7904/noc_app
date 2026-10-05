@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Building2,
@@ -59,8 +59,25 @@ export const RequestDetails = () => {
 
   const request = requests.find(r => r.id === id);
 
-  // Active Tab
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'quotations', 'approval', 'letter', 'work', 'bills', 'documents', 'history'
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'overview';
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    const queryTab = searchParams.get('tab');
+    if (queryTab && queryTab !== activeTab) {
+      setActiveTab(queryTab);
+    }
+  }, [searchParams]);
+
+  const switchTab = (newTab) => {
+    setActiveTab(newTab);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', newTab);
+      return next;
+    });
+  };
 
   // Modals State
   const [showAddQuotModal, setShowAddQuotModal] = useState(false);
@@ -239,14 +256,24 @@ export const RequestDetails = () => {
     setShowApprovalModal(true);
   };
 
-  const handleSaveApproval = (e) => {
+  const handleSaveApproval = async (e) => {
     e.preventDefault();
     if (!apprForm.authority_id) {
       alert('Please select the approval authority.');
       return;
     }
-    submitApproval(request.id, apprForm);
-    setShowApprovalModal(false);
+    try {
+      await submitApproval(request.id, apprForm);
+      setShowApprovalModal(false);
+      if (apprForm.decision === 'Approved') {
+        switchTab('letter');
+      } else if (apprForm.decision === 'Returned for Clarification') {
+        switchTab('quotations');
+      }
+    } catch (err) {
+      console.error('Approval submission error:', err);
+      alert('Failed to submit approval: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleOpenLetterModal = () => {
@@ -266,10 +293,16 @@ export const RequestDetails = () => {
     setShowLetterModal(true);
   };
 
-  const handleSaveLetter = (e) => {
+  const handleSaveLetter = async (e) => {
     e.preventDefault();
-    issueApprovalLetter(request.id, letterForm);
-    setShowLetterModal(false);
+    try {
+      await issueApprovalLetter(request.id, letterForm);
+      setShowLetterModal(false);
+      switchTab('work');
+    } catch (err) {
+      console.error('Letter issuance error:', err);
+      alert('Failed to issue approval letter: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleDownloadLetterPdf = () => {
@@ -297,10 +330,18 @@ export const RequestDetails = () => {
     setShowWorkModal(true);
   };
 
-  const handleSaveWork = (e) => {
+  const handleSaveWork = async (e) => {
     e.preventDefault();
-    updateWorkStatus(request.id, workForm);
-    setShowWorkModal(false);
+    try {
+      await updateWorkStatus(request.id, workForm);
+      setShowWorkModal(false);
+      if (workForm.status === 'Completed') {
+        switchTab('bills');
+      }
+    } catch (err) {
+      console.error('Work update error:', err);
+      alert('Failed to update work progress: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleOpenBillModal = () => {
@@ -319,7 +360,7 @@ export const RequestDetails = () => {
     setShowBillModal(true);
   };
 
-  const handleSaveBill = (e) => {
+  const handleSaveBill = async (e) => {
     e.preventDefault();
     if (!billForm.bill_no.trim()) {
       alert('Please enter bill/invoice number.');
@@ -329,8 +370,14 @@ export const RequestDetails = () => {
       alert('Please enter submitted amount.');
       return;
     }
-    addBill(request.id, billForm);
-    setShowBillModal(false);
+    try {
+      await addBill(request.id, billForm);
+      setShowBillModal(false);
+      switchTab('documents');
+    } catch (err) {
+      console.error('Bill submission error:', err);
+      alert('Failed to save bill: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleSaveScan = (scannedDoc) => {
@@ -389,33 +436,68 @@ export const RequestDetails = () => {
 
       {/* 8-Stage Visual Stepper */}
       <div className="workflow-stepper">
-        <div className={`workflow-step completed`}>
+        <div
+          className={`workflow-step ${activeTab === 'overview' ? 'current' : 'completed'}`}
+          onClick={() => switchTab('overview')}
+          style={{ cursor: 'pointer' }}
+          title="Click to view Stage 1: Requirement Overview"
+        >
           <div className="step-indicator">1</div>
           <div className="step-label">Requirement</div>
         </div>
-        <div className={`workflow-step ${hasQuotations ? 'completed' : 'current'}`}>
+        <div
+          className={`workflow-step ${activeTab === 'quotations' ? 'current' : (hasQuotations ? 'completed' : '')}`}
+          onClick={() => switchTab('quotations')}
+          style={{ cursor: 'pointer' }}
+          title="Click to view Stage 2: Vendor Quotations & Comparison"
+        >
           <div className="step-indicator">2</div>
           <div className="step-label">Quotations ({request.quotations?.length || 0})</div>
         </div>
-        <div className={`workflow-step ${isApproved ? 'completed' : (hasQuotations ? 'current' : '')}`}>
+        <div
+          className={`workflow-step ${activeTab === 'approval' ? 'current' : (isApproved ? 'completed' : (hasQuotations ? 'current' : ''))}`}
+          onClick={() => switchTab('approval')}
+          style={{ cursor: 'pointer' }}
+          title="Click to view Stage 3: Competent Authority Approvals"
+        >
           <div className="step-indicator">3</div>
           <div className="step-label">Approval ({latestApproval ? latestApproval.decision : 'Pending'})</div>
         </div>
-        <div className={`workflow-step ${hasLetter ? 'completed' : (isApproved ? 'current' : '')}`}>
+        <div
+          className={`workflow-step ${activeTab === 'letter' ? 'current' : (hasLetter ? 'completed' : (isApproved ? 'current' : ''))}`}
+          onClick={() => switchTab('letter')}
+          style={{ cursor: 'pointer' }}
+          title="Click to view Stage 4: Sanction Order / Approval Letter"
+        >
           <div className="step-indicator">4</div>
           <div className="step-label">Sanction Letter</div>
         </div>
-        <div className={`workflow-step ${isWorkCompleted ? 'completed' : (hasLetter ? 'current' : '')}`}>
+        <div
+          className={`workflow-step ${activeTab === 'work' ? 'current' : (isWorkCompleted ? 'completed' : (hasLetter ? 'current' : ''))}`}
+          onClick={() => switchTab('work')}
+          style={{ cursor: 'pointer' }}
+          title="Click to view Stage 5: Work Tracking & Execution"
+        >
           <div className="step-indicator">5</div>
           <div className="step-label">Work Tracking</div>
         </div>
-        <div className={`workflow-step ${hasApprovedBill ? 'completed' : (isWorkCompleted ? 'current' : '')}`}>
+        <div
+          className={`workflow-step ${activeTab === 'bills' ? 'current' : (hasApprovedBill ? 'completed' : (isWorkCompleted ? 'current' : ''))}`}
+          onClick={() => switchTab('bills')}
+          style={{ cursor: 'pointer' }}
+          title="Click to view Stage 6: Bill Verification & Passing"
+        >
           <div className="step-indicator">6</div>
           <div className="step-label">Bill Verification</div>
         </div>
-        <div className={`workflow-step ${isClosed ? 'completed' : ''}`}>
+        <div
+          className={`workflow-step ${activeTab === 'documents' ? 'current' : (requestDocs.length > 0 ? 'completed' : '')}`}
+          onClick={() => switchTab('documents')}
+          style={{ cursor: 'pointer' }}
+          title="Click to view Stage 7: Documents & Attachments"
+        >
           <div className="step-indicator">7</div>
-          <div className="step-label">Case Closure</div>
+          <div className="step-label">Documents ({requestDocs.length})</div>
         </div>
       </div>
 
@@ -435,7 +517,7 @@ export const RequestDetails = () => {
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => switchTab(tab.key)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -557,6 +639,13 @@ export const RequestDetails = () => {
               </div>
             </div>
           </div>
+
+          {/* Tab 1 Navigation Footer */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+            <button className="btn btn-primary" onClick={() => switchTab('quotations')}>
+              Next Stage: Vendor Quotations & Comparative Analysis &rarr;
+            </button>
+          </div>
         </div>
       )}
 
@@ -652,10 +741,21 @@ export const RequestDetails = () => {
                   agencies={agencies}
                   institutes={institutes}
                   onSelectQuotation={selectQuotation}
+                  onProceedToApproval={() => switchTab('approval')}
                 />
               </div>
             </div>
           )}
+
+          {/* Tab 2 Navigation Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+            <button className="btn btn-secondary" onClick={() => switchTab('overview')}>
+              &larr; Previous Stage: Overview
+            </button>
+            <button className="btn btn-primary" onClick={() => switchTab('approval')}>
+              Next Stage: Competent Authority Approval &rarr;
+            </button>
+          </div>
         </div>
       )}
 
@@ -740,6 +840,16 @@ export const RequestDetails = () => {
                 </table>
               </div>
             </div>
+          </div>
+
+          {/* Tab 3 Navigation Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+            <button className="btn btn-secondary" onClick={() => switchTab('quotations')}>
+              &larr; Previous Stage: Quotations
+            </button>
+            <button className="btn btn-primary" onClick={() => switchTab('letter')}>
+              Next Stage: Sanction Order / Letter &rarr;
+            </button>
           </div>
         </div>
       )}
@@ -866,6 +976,16 @@ export const RequestDetails = () => {
               </div>
             </div>
           )}
+
+          {/* Tab 4 Navigation Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+            <button className="btn btn-secondary" onClick={() => switchTab('approval')}>
+              &larr; Previous Stage: Approval
+            </button>
+            <button className="btn btn-primary" onClick={() => switchTab('work')}>
+              Next Stage: On-Site Work Progress &rarr;
+            </button>
+          </div>
         </div>
       )}
 
@@ -956,6 +1076,16 @@ export const RequestDetails = () => {
               </div>
             </div>
           )}
+
+          {/* Tab 5 Navigation Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+            <button className="btn btn-secondary" onClick={() => switchTab('letter')}>
+              &larr; Previous Stage: Sanction Letter
+            </button>
+            <button className="btn btn-primary" onClick={() => switchTab('bills')}>
+              Next Stage: Bill Verification & Payments &rarr;
+            </button>
+          </div>
         </div>
       )}
 
@@ -1035,6 +1165,16 @@ export const RequestDetails = () => {
               </div>
             </div>
           </div>
+
+          {/* Tab 6 Navigation Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+            <button className="btn btn-secondary" onClick={() => switchTab('work')}>
+              &larr; Previous Stage: Work Progress
+            </button>
+            <button className="btn btn-primary" onClick={() => switchTab('documents')}>
+              Next Stage: Documents & Digital Archive &rarr;
+            </button>
+          </div>
         </div>
       )}
 
@@ -1112,6 +1252,16 @@ export const RequestDetails = () => {
                 </table>
               </div>
             </div>
+          </div>
+
+          {/* Tab 7 Navigation Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+            <button className="btn btn-secondary" onClick={() => switchTab('bills')}>
+              &larr; Previous Stage: Vendor Bills
+            </button>
+            <Link to="/requests" className="btn btn-primary">
+              All Requests Directory &rarr;
+            </Link>
           </div>
         </div>
       )}

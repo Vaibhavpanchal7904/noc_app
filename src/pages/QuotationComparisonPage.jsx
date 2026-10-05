@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { GitCompare, FileSpreadsheet, Building2, ArrowLeft } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { QuotationComparisonMatrix } from '../components/QuotationComparisonMatrix';
 
 export const QuotationComparisonPage = () => {
+  const navigate = useNavigate();
   const { requests, institutes, agencies, selectQuotation } = useData();
 
   // Requests that have at least one quotation
@@ -63,6 +64,7 @@ export const QuotationComparisonPage = () => {
                   agencies={agencies}
                   institutes={institutes}
                   onSelectQuotation={selectQuotation}
+                  onProceedToApproval={() => navigate(`/requests/${activeRequest.id}?tab=approval`)}
                 />
               </div>
             </div>

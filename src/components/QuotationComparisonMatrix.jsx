@@ -3,13 +3,14 @@ import { GitCompare, CheckCircle2, Download, Award, AlertCircle } from 'lucide-r
 import { formatCurrency, formatDate, generateQuotationComparisonPdf } from '../utils/pdfGenerator';
 import { useAuth } from '../context/AuthContext';
 
-export const QuotationComparisonMatrix = ({ request, agencies, institutes, onSelectQuotation }) => {
+export const QuotationComparisonMatrix = ({ request, agencies, institutes, onSelectQuotation, onProceedToApproval }) => {
   const { permissions } = useAuth();
   const [selectedQuotId, setSelectedQuotId] = useState('');
   const [rationale, setRationale] = useState('');
   const [showSelectModal, setShowSelectModal] = useState(false);
 
   const quotations = request?.quotations || [];
+  const selectedVendor = quotations.find(q => q.is_selected);
   if (quotations.length === 0) {
     return (
       <div className="empty-state">
@@ -32,13 +33,16 @@ export const QuotationComparisonMatrix = ({ request, agencies, institutes, onSel
     setShowSelectModal(true);
   };
 
-  const handleConfirmSelection = () => {
+  const handleConfirmSelection = async () => {
     if (!rationale.trim()) {
       alert('Please provide a brief justification / rationale for vendor selection.');
       return;
     }
-    onSelectQuotation(request.id, selectedQuotId, rationale);
+    await onSelectQuotation(request.id, selectedQuotId, rationale);
     setShowSelectModal(false);
+    if (onProceedToApproval) {
+      onProceedToApproval();
+    }
   };
 
   const handleExportPdf = () => {
@@ -206,6 +210,29 @@ export const QuotationComparisonMatrix = ({ request, agencies, institutes, onSel
           </tbody>
         </table>
       </div>
+
+      {selectedVendor && (
+        <div className="alert alert-success" style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <CheckCircle2 size={20} color="#16a34a" />
+            <div>
+              <div style={{ fontWeight: 700, color: '#166534' }}>
+                Selected Vendor: {agencies.find(a => a.id === selectedVendor.agency_id)?.name || 'Agency'} — {formatCurrency(selectedVendor.total_amount)}
+              </div>
+              {selectedVendor.selection_rationale && (
+                <div style={{ fontSize: 12, color: '#15803d', marginTop: 2 }}>
+                  Justification: "{selectedVendor.selection_rationale}"
+                </div>
+              )}
+            </div>
+          </div>
+          {onProceedToApproval && (
+            <button className="btn btn-primary" onClick={onProceedToApproval}>
+              Proceed to Competent Authority Approval &rarr;
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Selection Modal */}
       {showSelectModal && (
