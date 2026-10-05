@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu, Search, User, RefreshCw, Shield, Check, Database } from 'lucide-react';
+import { Menu, Search, RefreshCw, Shield, Check, Database, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { DEFAULT_USERS } from '../data/initialData';
@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 
 export const Header = ({ onToggleSidebar }) => {
   const { currentUser, switchDemoUser, isConfigured } = useAuth();
-  const { resetToFactoryData, requests } = useData();
+  const { resetToFactoryData, requests, syncStatus, refetchData } = useData();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -44,81 +44,141 @@ export const Header = ({ onToggleSidebar }) => {
     }
   };
 
+  const handleSyncClick = () => {
+    if (isConfigured) {
+      refetchData();
+    } else {
+      // Local sync
+      const saved = localStorage.getItem('noc_requests');
+      if (saved) {
+        alert(`Local state active: ${requests.length} total requests in storage.`);
+      }
+    }
+  };
+
   return (
     <>
       <header className="header">
         <div className="header-left">
           <button 
-            className="btn-icon" 
+            className="btn-icon header-menu-toggle" 
             onClick={onToggleSidebar}
-            style={{ display: 'flex', alignItems: 'center' }}
+            aria-label="Toggle navigation menu"
             title="Toggle Menu"
           >
             <Menu size={20} />
           </button>
           
+          {/* Desktop Search Input Box */}
           <div 
-            className="search-input-wrapper"
-            style={{ maxWidth: 320, cursor: 'pointer' }}
+            className="search-input-wrapper header-search-desktop"
+            style={{ maxWidth: 280, cursor: 'pointer' }}
             onClick={() => setShowSearchModal(true)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && setShowSearchModal(true)}
+            aria-label="Open search dialog"
           >
             <Search size={16} className="search-icon" />
             <input
               type="text"
               className="form-control search-input"
-              placeholder="Quick search cases, letters, colleges..."
+              placeholder="Quick search cases..."
               readOnly
+              tabIndex={-1}
             />
           </div>
+
+          {/* Mobile Search Icon Button */}
+          <button
+            className="btn-icon header-search-mobile"
+            onClick={() => setShowSearchModal(true)}
+            aria-label="Search requests and cases"
+            title="Search"
+          >
+            <Search size={18} />
+          </button>
         </div>
 
         <div className="header-right">
-          {/* Connection Status Badge */}
-          <div 
-            className="badge" 
+          {/* Connection & Sync Status Badge */}
+          <button 
+            className="badge header-status-badge"
+            onClick={handleSyncClick}
             style={{ 
-              backgroundColor: isConfigured ? '#dcfce7' : '#f1f5f9',
-              color: isConfigured ? '#166534' : '#475569',
-              border: '1px solid ' + (isConfigured ? '#bbf7d0' : '#cbd5e1'),
+              backgroundColor: isConfigured ? (syncStatus === 'synced' ? '#dcfce7' : syncStatus === 'syncing' ? '#e0f2fe' : '#fee2e2') : '#f1f5f9',
+              color: isConfigured ? (syncStatus === 'synced' ? '#166534' : syncStatus === 'syncing' ? '#0369a1' : '#991b1b') : '#475569',
+              border: '1px solid ' + (isConfigured ? (syncStatus === 'synced' ? '#bbf7d0' : syncStatus === 'syncing' ? '#bae6fd' : '#fecaca') : '#cbd5e1'),
               fontSize: '11px',
-              padding: '4px 8px'
+              padding: '5px 10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
             }}
-            title={isConfigured ? 'Connected to live Supabase cloud instance' : 'Running in local state mode with full offline CRUD & persistence'}
+            title={isConfigured ? `Cloud Database: ${syncStatus}. Click to refresh.` : 'Running in local state mode with full offline persistence.'}
           >
-            <Database size={12} style={{ marginRight: 4 }} />
-            {isConfigured ? 'Supabase Live' : 'Local State Engine'}
-          </div>
+            {isConfigured ? (
+              syncStatus === 'syncing' ? (
+                <RefreshCw size={12} className="spin-animation" style={{ marginRight: 2 }} />
+              ) : syncStatus === 'error' ? (
+                <AlertTriangle size={12} style={{ marginRight: 2 }} />
+              ) : (
+                <Database size={12} style={{ marginRight: 2 }} />
+              )
+            ) : (
+              <Database size={12} style={{ marginRight: 2 }} />
+            )}
+            <span className="header-badge-text">
+              {isConfigured 
+                ? (syncStatus === 'syncing' ? 'Syncing...' : syncStatus === 'error' ? 'Sync Error' : 'Cloud Synced') 
+                : 'Local Engine'}
+            </span>
+          </button>
+
+          {/* Force Sync / Refetch Button */}
+          <button 
+            className="btn btn-secondary btn-sm header-reset-btn"
+            onClick={() => refetchData()}
+            aria-label="Sync and refresh data"
+            title="Force refresh data from database"
+          >
+            <RefreshCw size={14} className={syncStatus === 'syncing' ? 'spin-animation' : ''} />
+            <span className="header-btn-text">Sync Data</span>
+          </button>
 
           {/* Quick Reset Button for testing */}
           <button 
-            className="btn btn-secondary btn-sm"
+            className="btn btn-secondary btn-sm header-reset-btn"
             onClick={handleResetData}
+            aria-label="Reset demo and sample data"
             title="Reset master & sample demo data"
           >
-            <RefreshCw size={14} />
-            <span>Reset Demo Data</span>
+            <span className="header-btn-text">Reset Demo</span>
           </button>
 
           {/* Role & User Switcher */}
           <div style={{ position: 'relative' }}>
             <button 
-              className="btn btn-secondary btn-sm"
+              className="btn btn-secondary btn-sm header-user-btn"
               onClick={() => setShowUserMenu(!showUserMenu)}
+              aria-label="Switch user role"
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
               <Shield size={14} color="#2563eb" />
-              <span style={{ fontWeight: 600 }}>{currentUser?.full_name?.split(' ')[0]}</span>
-              <span style={{ fontSize: 11, color: '#64748b' }}>({currentUser?.role?.replace('_', ' ')})</span>
+              <span className="header-user-name" style={{ fontWeight: 600 }}>{currentUser?.full_name?.split(' ')[0]}</span>
+              <span className="header-user-role" style={{ fontSize: 11, color: '#64748b' }}>({currentUser?.role?.replace('_', ' ')})</span>
             </button>
 
             {showUserMenu && (
               <div 
+                className="user-menu-popover"
                 style={{
                   position: 'absolute',
                   right: 0,
                   top: '100%',
                   marginTop: 6,
-                  width: 280,
+                  width: 'min(280px, calc(100vw - 32px))',
                   background: 'white',
                   border: '1px solid #e2e8f0',
                   borderRadius: 8,

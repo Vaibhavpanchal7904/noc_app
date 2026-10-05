@@ -20,7 +20,8 @@ import {
   History,
   Sliders,
   LogOut,
-  Database
+  Database,
+  X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -33,13 +34,23 @@ export const Sidebar = ({ isOpen, onClose }) => {
   const pendingBillsCount = requests.filter(r => r.bills?.some(b => b.bill_status === 'Submitted')).length;
 
   return (
-    <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+    <aside className={`sidebar ${isOpen ? 'open' : ''}`} aria-label="Main Navigation">
       <div className="sidebar-header">
-        <div className="sidebar-logo-icon">NOC</div>
-        <div>
-          <div className="sidebar-brand-title">CVM & CVMU</div>
-          <div className="sidebar-brand-subtitle">NOC Management System</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+          <div className="sidebar-logo-icon">NOC</div>
+          <div>
+            <div className="sidebar-brand-title">CVM & CVMU</div>
+            <div className="sidebar-brand-subtitle">NOC Management System</div>
+          </div>
         </div>
+        <button
+          className="sidebar-mobile-close"
+          onClick={onClose}
+          aria-label="Close navigation menu"
+          title="Close menu"
+        >
+          <X size={20} />
+        </button>
       </div>
 
       <nav className="sidebar-nav">

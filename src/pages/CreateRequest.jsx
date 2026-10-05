@@ -360,14 +360,14 @@ export const CreateRequest = () => {
               </table>
             </div>
           </div>
-          <div className="card-footer" style={{ justifyContent: 'flex-start', gap: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="card-footer" style={{ justifyContent: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <label style={{ fontSize: 13, fontWeight: 600 }}>Approximate Total Budget (INR):</label>
               <input
                 type="number"
                 step="0.01"
                 className="form-control"
-                style={{ width: 180, fontWeight: 600 }}
+                style={{ width: 'min(220px, 100%)', fontWeight: 600 }}
                 placeholder="Optional budget"
                 value={estimatedBudget}
                 onChange={e => setEstimatedBudget(e.target.value)}
@@ -394,11 +394,11 @@ export const CreateRequest = () => {
             {attachedDocs.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {attachedDocs.map((doc, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <FileText size={16} color="#2563eb" />
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{doc.file_name}</div>
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <FileText size={16} color="#2563eb" style={{ flexShrink: 0 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, overflowWrap: 'anywhere' }}>{doc.file_name}</div>
                         <div style={{ fontSize: 11, color: '#64748b' }}>Category: {doc.category}</div>
                       </div>
                     </div>
@@ -406,6 +406,7 @@ export const CreateRequest = () => {
                       type="button"
                       className="btn-icon"
                       onClick={() => setAttachedDocs(prev => prev.filter((_, i) => i !== idx))}
+                      title="Remove attachment"
                     >
                       <Trash2 size={14} color="#ef4444" />
                     </button>
@@ -421,7 +422,7 @@ export const CreateRequest = () => {
         </div>
 
         {/* Submit Bar */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginBottom: 40 }}>
+        <div className="page-header-actions" style={{ justifyContent: 'flex-end', gap: 12, marginBottom: 40 }}>
           <Link to="/requests" className="btn btn-secondary btn-lg">
             Cancel
           </Link>

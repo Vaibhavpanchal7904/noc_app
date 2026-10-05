@@ -34,6 +34,12 @@ const AppLayout = ({ children }) => {
 
   return (
     <div className="app-container">
+      {/* Mobile Drawer Backdrop */}
+      <div 
+        className={`sidebar-backdrop ${sidebarOpen ? 'active' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-wrapper">
         <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
