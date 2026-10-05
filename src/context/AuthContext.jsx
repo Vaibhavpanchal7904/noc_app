@@ -255,6 +255,7 @@ export const AuthProvider = ({ children }) => {
   const permissions = {
     canCreateRequest: !isAuditor,
     canEditRequest: !isAuditor,
+    canDeleteRequest: !isAuditor,
     canAddQuotation: !isAuditor,
     canSelectQuotation: !isAuditor,
     canApprove: isApprover,

@@ -9,16 +9,22 @@ import {
   Building2,
   Calendar,
   X,
-  FileText
+  FileText,
+  Trash2,
+  AlertCircle
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 import { StatusBadge } from '../components/StatusBadge';
 import { formatCurrency, formatDate } from '../utils/pdfGenerator';
 import Papa from 'papaparse';
 
 export const AllRequests = () => {
-  const { requests, institutes, agencies, organizations } = useData();
+  const { requests, institutes, agencies, organizations, deleteRequest } = useData();
+  const { permissions } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [requestToDelete, setRequestToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filters State
   const initialStatus = searchParams.get('status') || 'ALL';
@@ -278,9 +284,21 @@ export const AllRequests = () => {
                       <StatusBadge status={req.overall_status} />
                     </td>
                     <td>
-                      <Link to={`/requests/${req.id}`} className="btn btn-secondary btn-sm">
-                        View Details
-                      </Link>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <Link to={`/requests/${req.id}`} className="btn btn-secondary btn-sm">
+                          View Details
+                        </Link>
+                        {permissions.canDeleteRequest && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ color: '#dc2626', borderColor: '#fecaca', padding: '6px 8px' }}
+                            title="Delete Request"
+                            onClick={() => setRequestToDelete(req)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -301,6 +319,55 @@ export const AllRequests = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {requestToDelete && (
+        <div className="modal-backdrop">
+          <div className="modal-container" style={{ maxWidth: 480 }}>
+            <div className="modal-header" style={{ borderBottomColor: '#fee2e2' }}>
+              <div className="modal-title" style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Trash2 size={20} /> Delete Request {requestToDelete.request_no}
+              </div>
+              <button className="btn-icon" onClick={() => !isDeleting && setRequestToDelete(null)} disabled={isDeleting}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="alert alert-danger" style={{ marginBottom: 16 }}>
+                <AlertCircle size={18} />
+                <div>
+                  <strong>Permanent Action:</strong> This will delete request <strong>{requestToDelete.request_no}</strong> ({requestToDelete.title}) and all linked records across devices.
+                </div>
+              </div>
+              <p style={{ fontSize: 13, color: '#475569', margin: 0 }}>
+                Are you sure you want to delete this NOC request? This action cannot be undone and will be logged in the audit trail.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setRequestToDelete(null)} disabled={isDeleting}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#dc2626', borderColor: '#b91c1c' }}
+                disabled={isDeleting}
+                onClick={async () => {
+                  setIsDeleting(true);
+                  try {
+                    await deleteRequest(requestToDelete.id);
+                    setRequestToDelete(null);
+                  } catch (err) {
+                    console.error('Failed to delete request:', err);
+                    alert('Failed to delete request. Please try again.');
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+              >
+                {isDeleting ? 'Deleting...' : 'Yes, Delete Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

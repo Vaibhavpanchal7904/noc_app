@@ -51,6 +51,7 @@ export const RequestDetails = () => {
     addBill,
     closeRequest,
     reopenRequest,
+    deleteRequest,
     addDocument,
     getNextLetterNo
   } = useData();
@@ -70,6 +71,8 @@ export const RequestDetails = () => {
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showReopenModal, setShowReopenModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedDocForPreview, setSelectedDocForPreview] = useState(null);
 
   // Forms State
@@ -369,6 +372,16 @@ export const RequestDetails = () => {
           ) : (
             <button className="btn btn-secondary" onClick={() => setShowReopenModal(true)}>
               <Unlock size={16} /> Reopen Case
+            </button>
+          )}
+
+          {permissions.canDeleteRequest && (
+            <button
+              className="btn btn-secondary"
+              style={{ color: '#dc2626', borderColor: '#fca5a5' }}
+              onClick={() => setShowDeleteModal(true)}
+            >
+              <Trash2 size={16} /> Delete Request
             </button>
           )}
         </div>
@@ -1769,6 +1782,55 @@ export const RequestDetails = () => {
                 setShowReopenModal(false);
               }}>
                 Reopen Case
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Request Modal */}
+      {showDeleteModal && (
+        <div className="modal-backdrop">
+          <div className="modal-container" style={{ maxWidth: 480 }}>
+            <div className="modal-header" style={{ borderBottomColor: '#fee2e2' }}>
+              <div className="modal-title" style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Trash2 size={20} /> Delete Request {request.request_no}
+              </div>
+              <button className="btn-icon" onClick={() => !isDeleting && setShowDeleteModal(false)} disabled={isDeleting}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="alert alert-danger" style={{ marginBottom: 16 }}>
+                <AlertCircle size={18} />
+                <div>
+                  <strong>Permanent Action:</strong> This will delete request <strong>{request.request_no}</strong> ({request.title}) and all associated items, quotations, approvals, and bills across all connected devices and Supabase.
+                </div>
+              </div>
+              <p style={{ fontSize: 13, color: '#475569', margin: 0 }}>
+                Are you sure you want to delete this NOC request? This action cannot be undone and will be recorded in the system audit logs.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowDeleteModal(false)} disabled={isDeleting}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#dc2626', borderColor: '#b91c1c' }}
+                disabled={isDeleting}
+                onClick={async () => {
+                  setIsDeleting(true);
+                  try {
+                    await deleteRequest(request.id);
+                    setShowDeleteModal(false);
+                    navigate('/requests');
+                  } catch (err) {
+                    console.error('Error deleting request:', err);
+                    alert('Failed to delete request. Please try again.');
+                    setIsDeleting(false);
+                  }
+                }}
+              >
+                {isDeleting ? 'Deleting...' : 'Yes, Delete Request'}
               </button>
             </div>
           </div>
