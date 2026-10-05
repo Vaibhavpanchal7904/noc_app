@@ -59,11 +59,18 @@ assert(Boolean(yash), 'Yash Computers present');
 assert(Boolean(rise), 'Rise Techno Solutions present');
 
 // Test 3: Approval Authorities
-console.log('\nTest Suite 3: Approval Authorities (Section 6)');
+console.log('\nTest Suite 3: Approval Authorities (CVM & CVMU exact options)');
 const cvmAuths = INITIAL_AUTHORITIES.filter(a => a.org_id === 'org-cvm');
 const cvmuAuths = INITIAL_AUTHORITIES.filter(a => a.org_id === 'org-cvmu');
-assert(cvmAuths.length === 2, 'CVM has Chairman and Hon. Joint Secretary');
-assert(cvmuAuths.length === 5, 'CVMU has President, Provost, Registrar, Deputy Registrar, Registrar I/C');
+assert(cvmAuths.length === 3, `CVM has 3 configured options (found ${cvmAuths.length})`);
+assert(cvmAuths.some(a => a.title === 'Chairman' && a.officer_name === 'Er. Bhikhubhai Patel'), 'CVM Chairman is Er. Bhikhubhai Patel');
+assert(cvmAuths.some(a => a.title === 'Hon. Joint Secretary' && a.officer_name === 'Shri Vishal Patel'), 'CVM Hon. Joint Secretary includes Shri Vishal Patel');
+assert(cvmAuths.some(a => a.title === 'Hon. Joint Secretary' && a.officer_name === 'Shri Rashmikant Patel'), 'CVM Hon. Joint Secretary includes Shri Rashmikant Patel');
+
+assert(cvmuAuths.length === 3, `CVMU has exactly 3 options (found ${cvmuAuths.length})`);
+assert(cvmuAuths.some(a => a.title === 'President' && !a.officer_name), 'CVMU President option present (title based)');
+assert(cvmuAuths.some(a => a.title === 'Registrar' && !a.officer_name), 'CVMU Registrar option present (title based)');
+assert(cvmuAuths.some(a => a.title === 'Member of Governing Body' && !a.officer_name), 'CVMU Member of Governing Body option present (title based)');
 
 // Test 4: Realistic Historical Examples (Section 8)
 console.log('\nTest Suite 4: Realistic Historical Examples (Section 8)');

@@ -1663,7 +1663,7 @@ export const RequestDetails = () => {
                         setLetterForm(prev => ({
                           ...prev,
                           authority_id: authId,
-                          signatory_name: selected.officer_name || prev.signatory_name,
+                          signatory_name: selected.officer_name || '',
                           signatory_title: selected.title || prev.signatory_title
                         }));
                       } else {
@@ -1697,21 +1697,20 @@ export const RequestDetails = () => {
                     )}
                   </select>
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                    Selecting any authority automatically updates the Signatory Name and Title below.
+                    Selecting any authority automatically updates the Signatory Title and Name below.
                   </div>
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label">Signatory Name <span className="required">*</span></label>
+                    <label className="form-label">Signatory Name (Optional for CVMU)</label>
                     <input
                       type="text"
                       list="signatory-officers-datalist"
                       className="form-control"
                       value={letterForm.signatory_name}
                       onChange={e => setLetterForm({ ...letterForm, signatory_name: e.target.value })}
-                      placeholder="e.g. Shri Prayasvin Patel / Dr. J. D. Patel"
-                      required
+                      placeholder="e.g. Er. Bhikhubhai Patel / Shri Vishal Patel / Shri Rashmikant Patel"
                     />
                     <datalist id="signatory-officers-datalist">
                       {Array.from(new Set(authorities.map(a => a.officer_name).filter(Boolean))).map(name => (

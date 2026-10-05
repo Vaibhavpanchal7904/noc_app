@@ -84,16 +84,15 @@ export const INITIAL_AGENCIES = [
 ];
 
 export const INITIAL_AUTHORITIES = [
-  // CVM Authorities
-  { id: 'auth-1', org_id: 'org-cvm', title: 'Chairman', officer_name: 'Shri Prayasvin Patel', sort_order: 1, is_active: true },
-  { id: 'auth-2', org_id: 'org-cvm', title: 'Hon. Joint Secretary', officer_name: 'Shri Mehul Patel', sort_order: 2, is_active: true },
+  // CVM Authorities (Charutar Vidya Mandal)
+  { id: 'auth-1', org_id: 'org-cvm', org_code: 'CVM', title: 'Chairman', officer_name: 'Er. Bhikhubhai Patel', sort_order: 1, is_active: true },
+  { id: 'auth-2', org_id: 'org-cvm', org_code: 'CVM', title: 'Hon. Joint Secretary', officer_name: 'Shri Vishal Patel', sort_order: 2, is_active: true },
+  { id: 'auth-3', org_id: 'org-cvm', org_code: 'CVM', title: 'Hon. Joint Secretary', officer_name: 'Shri Rashmikant Patel', sort_order: 3, is_active: true },
 
-  // CVMU Authorities
-  { id: 'auth-3', org_id: 'org-cvmu', title: 'President', officer_name: 'Er. Bhikhubhai Patel', sort_order: 1, is_active: true },
-  { id: 'auth-4', org_id: 'org-cvmu', title: 'Provost', officer_name: 'Dr. S. G. Patel', sort_order: 2, is_active: true },
-  { id: 'auth-5', org_id: 'org-cvmu', title: 'Registrar', officer_name: 'Dr. J. D. Patel', sort_order: 3, is_active: true },
-  { id: 'auth-6', org_id: 'org-cvmu', title: 'Deputy Registrar', officer_name: 'Shri B. M. Shah', sort_order: 4, is_active: true },
-  { id: 'auth-7', org_id: 'org-cvmu', title: 'Registrar I/C', officer_name: 'Dr. H. N. Kapse', sort_order: 5, is_active: true }
+  // CVMU Authorities (CVM University - 3 options only, title based without hardcoded names)
+  { id: 'auth-4', org_id: 'org-cvmu', org_code: 'CVMU', title: 'President', officer_name: null, sort_order: 4, is_active: true },
+  { id: 'auth-5', org_id: 'org-cvmu', org_code: 'CVMU', title: 'Registrar', officer_name: null, sort_order: 5, is_active: true },
+  { id: 'auth-6', org_id: 'org-cvmu', org_code: 'CVMU', title: 'Member of Governing Body', officer_name: null, sort_order: 6, is_active: true }
 ];
 
 export const INITIAL_STOCK_NOTES = [

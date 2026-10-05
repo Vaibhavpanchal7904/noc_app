@@ -132,9 +132,9 @@ export const DataProvider = ({ children }) => {
       nocDeptTitle: 'NETWORK OPERATIONS & HARDWARE PROCUREMENT CELL (NOC)',
       phone: '+91 2692 236498',
       email: 'noc@cvm.gov.in',
-      signatoryNameCvm: 'Shri Prayasvin Patel',
-      signatoryTitleCvm: 'Hon. Joint Secretary / Chairman',
-      signatoryNameCvmu: 'Dr. J. D. Patel',
+      signatoryNameCvm: 'Er. Bhikhubhai Patel',
+      signatoryTitleCvm: 'Chairman',
+      signatoryNameCvmu: '',
       signatoryTitleCvmu: 'Registrar',
       footerNote: 'This is a computer-generated sanction / approval order issued by the Central NOC Department.'
     };
