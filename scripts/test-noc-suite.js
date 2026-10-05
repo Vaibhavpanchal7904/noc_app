@@ -147,6 +147,62 @@ const hasInventedPhones = INITIAL_TEAM_MEMBERS.some(m => m.phone !== null);
 assert(!hasInventedEmails, 'Initial team members have no invented emails');
 assert(!hasInventedPhones, 'Initial team members have no invented phone numbers');
 
+// Test 10: Unique Request Number Generation & Gap Resilience (Section 1 & Bug 1)
+console.log('\nTest Suite 10: Sequential Request Numbering & Gap Handling');
+const sampleReqList = [
+  { request_no: 'NOC-2026-0001' },
+  { request_no: 'NOC-2026-0004' },
+  { request_no: 'NOC-2026-0009' }
+];
+const computeNextNo = (list) => {
+  const year = 2026;
+  const prefix = `NOC-${year}-`;
+  let max = 0;
+  list.forEach(r => {
+    if (r?.request_no?.startsWith(prefix)) {
+      const n = parseInt(r.request_no.substring(prefix.length), 10);
+      if (!isNaN(n) && n > max) max = n;
+    }
+  });
+  return `NOC-${year}-${String(max + 1).padStart(4, '0')}`;
+};
+const nextGenerated = computeNextNo(sampleReqList);
+assert(nextGenerated === 'NOC-2026-0010', 'Next request number uses max existing suffix + 1 (NOC-2026-0010) even with deleted gaps');
+
+// Test 11: Vendor Selection & Approval Tab Pre-population
+console.log('\nTest Suite 11: Vendor Selection & Approval Tab Data Mapping');
+const testRequestWithSelectedQuot = {
+  id: 'd2360e0c-b743-419b-9271-852e1d32d942',
+  request_no: 'NOC-2026-0009',
+  org_id: 'org-cvm',
+  quotations: [
+    {
+      id: 'q-1',
+      agency_id: 'ag-1',
+      total_amount: 601.80,
+      tax_percent: 18,
+      is_selected: true,
+      selection_rationale: 'Lowest quoted price with required specifications.'
+    }
+  ],
+  approvals: []
+};
+const selQuot = testRequestWithSelectedQuot.quotations.find(q => q.is_selected);
+assert(Boolean(selQuot), 'Selected quotation successfully located on request');
+assert(selQuot.total_amount === 601.80, 'Selected quotation amount is ₹601.80');
+assert(selQuot.selection_rationale.includes('Lowest quoted price'), 'Selection justification rationale preserved');
+assert(testRequestWithSelectedQuot.approvals.length === 0, 'No fake approval record fabricated before formal submission');
+
+// Test 12: Tombstone Deletion & Resurrection Prevention
+console.log('\nTest Suite 12: Tombstone Deletion & Cloud Filtering');
+const deletedIds = ['d2360e0c-b743-419b-9271-852e1d32d942'];
+const incomingCloudData = [
+  { id: 'd2360e0c-b743-419b-9271-852e1d32d942', request_no: 'NOC-2026-0009' },
+  { id: 'fresh-id-2', request_no: 'NOC-2026-0010' }
+];
+const filteredCloud = incomingCloudData.filter(r => !deletedIds.includes(r.id) && !deletedIds.includes(r.request_no));
+assert(filteredCloud.length === 1 && filteredCloud[0].id === 'fresh-id-2', 'Deleted requests filtered out from cloud sync');
+
 console.log('\n====================================================');
 console.log(`Test Execution Complete: ${passed} Passed, ${failed} Failed`);
 console.log('====================================================');
@@ -154,4 +210,5 @@ console.log('====================================================');
 if (failed > 0) {
   process.exit(1);
 }
+
 

@@ -700,8 +700,27 @@ export const DataProvider = ({ children }) => {
   // Helper to generate Next Request Number e.g. NOC-2026-0002
   const getNextRequestNo = () => {
     const year = new Date().getFullYear();
-    const count = requests.length + 1;
-    const padded = String(count).padStart(4, '0');
+    const prefix = `NOC-${year}-`;
+    let maxNum = 0;
+
+    const parseNum = (reqNo) => {
+      if (typeof reqNo === 'string' && reqNo.startsWith(prefix)) {
+        const numPart = parseInt(reqNo.substring(prefix.length), 10);
+        if (!isNaN(numPart) && numPart > maxNum) {
+          maxNum = numPart;
+        }
+      }
+    };
+
+    (requests || []).forEach(r => parseNum(r?.request_no));
+
+    try {
+      const cached = JSON.parse(localStorage.getItem('noc_requests') || '[]');
+      cached.forEach(r => parseNum(r?.request_no));
+    } catch (_) {}
+
+    const nextNum = maxNum + 1;
+    const padded = String(nextNum).padStart(4, '0');
     return `NOC-${year}-${padded}`;
   };
 
@@ -716,7 +735,9 @@ export const DataProvider = ({ children }) => {
   // 1. Create Request
   const createRequest = async (formData) => {
     const newReqId = generateUUID();
-    const reqNo = formData.request_no || getNextRequestNo();
+    const year = new Date().getFullYear();
+    const prefix = `NOC-${year}-`;
+    let reqNo = formData.request_no || getNextRequestNo();
 
     const targetOrgUuid = resolveOrgUuid(formData.org_id);
     const targetInstUuid = resolveInstUuid(formData.institute_id);
@@ -765,7 +786,7 @@ export const DataProvider = ({ children }) => {
     // Supabase Cloud Persistence
     if (activeClient) {
       try {
-        const { error: reqErr } = await activeClient.from('requests').insert({
+        let insertPayload = {
           id: newReqId,
           request_no: reqNo,
           org_id: targetOrgUuid,
@@ -782,7 +803,43 @@ export const DataProvider = ({ children }) => {
           internal_notes: newRequest.internal_notes || null,
           is_historical: false,
           created_at: newRequest.created_at
-        });
+        };
+
+        let { error: reqErr } = await activeClient.from('requests').insert(insertPayload);
+
+        // Handle unique constraint conflict gracefully
+        if (reqErr && (reqErr.code === '23505' || reqErr.message?.includes('requests_request_no_key') || reqErr.message?.includes('duplicate key'))) {
+          console.warn('Duplicate request_no detected, recalculating highest sequential number...');
+          const { data: cloudList } = await activeClient.from('requests').select('request_no').like('request_no', `NOC-${year}-%`);
+          let cloudMax = 0;
+          (cloudList || []).forEach(r => {
+            if (r?.request_no?.startsWith(prefix)) {
+              const n = parseInt(r.request_no.substring(prefix.length), 10);
+              if (!isNaN(n) && n > cloudMax) cloudMax = n;
+            }
+          });
+          (requests || []).forEach(r => {
+            if (r?.request_no?.startsWith(prefix)) {
+              const n = parseInt(r.request_no.substring(prefix.length), 10);
+              if (!isNaN(n) && n > cloudMax) cloudMax = n;
+            }
+          });
+          const resolvedReqNo = `NOC-${year}-${String(cloudMax + 1).padStart(4, '0')}`;
+          insertPayload.request_no = resolvedReqNo;
+          newRequest.request_no = resolvedReqNo;
+
+          const retryRes = await activeClient.from('requests').insert(insertPayload);
+          reqErr = retryRes.error;
+
+          if (!reqErr) {
+            setRequests(prev => prev.map(r => r.id === newReqId ? { ...r, request_no: resolvedReqNo } : r));
+            try {
+              const stored = JSON.parse(localStorage.getItem('noc_requests') || '[]');
+              const updated = stored.map(r => r.id === newReqId ? { ...r, request_no: resolvedReqNo } : r);
+              localStorage.setItem('noc_requests', JSON.stringify(updated));
+            } catch (_) {}
+          }
+        }
 
         if (reqErr) {
           console.error('Supabase createRequest insert error:', reqErr.message);

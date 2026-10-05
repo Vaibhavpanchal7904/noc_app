@@ -57,7 +57,7 @@ export const RequestDetails = () => {
   } = useData();
   const { currentUser, permissions } = useAuth();
 
-  const request = requests.find(r => r.id === id);
+  const request = requests.find(r => r.id === id || r.request_no === id);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') || 'overview';
@@ -179,7 +179,8 @@ export const RequestDetails = () => {
 
   // Workflow Stages Checklist
   const hasQuotations = (request.quotations || []).length > 0;
-  const hasSelectedQuot = request.quotations?.some(q => q.is_selected);
+  const selectedQuot = request.quotations?.find(q => q.is_selected);
+  const hasSelectedQuot = Boolean(selectedQuot);
   const latestApproval = request.approvals?.[request.approvals.length - 1];
   const isApproved = latestApproval?.decision === 'Approved';
   const hasLetter = Boolean(request.approval_letter);
@@ -188,11 +189,12 @@ export const RequestDetails = () => {
   const isClosed = request.overall_status === 'Closed';
 
   // Selected Vendor
-  const selectedAgencyId = latestApproval?.selected_agency_id || request.quotations?.find(q => q.is_selected)?.agency_id || request.work_record?.agency_id;
+  const selectedAgencyId = latestApproval?.selected_agency_id || selectedQuot?.agency_id || request.work_record?.agency_id;
   const selectedAgency = agencies.find(a => a.id === selectedAgencyId);
 
-  // Filter authorities for the request's organization
-  const orgAuthorities = authorities.filter(a => a.org_id === request.org_id && a.is_active);
+  // Filter authorities for the request's organization (with fallback to all active authorities)
+  const orgAuthorities = authorities.filter(a => (a.org_id === request.org_id || a.org_code === org?.code) && a.is_active);
+  const availableAuthorities = orgAuthorities.length > 0 ? orgAuthorities : authorities.filter(a => a.is_active);
 
   // Handlers
   const handleOpenAddQuotation = () => {
@@ -241,16 +243,16 @@ export const RequestDetails = () => {
   };
 
   const handleOpenApprovalModal = () => {
-    const selectedQuot = request.quotations?.find(q => q.is_selected) || request.quotations?.[0];
-    const defaultAuth = orgAuthorities[0]?.id || '';
+    const chosenQuot = selectedQuot || request.quotations?.[0];
+    const defaultAuth = availableAuthorities[0]?.id || authorities[0]?.id || '';
     setApprForm({
       authority_id: defaultAuth,
-      selected_agency_id: selectedQuot?.agency_id || agencies[0]?.id || '',
-      proposed_amount: selectedQuot ? String(selectedQuot.total_amount) : (request.estimated_budget ? String(request.estimated_budget) : '0'),
+      selected_agency_id: chosenQuot?.agency_id || agencies[0]?.id || '',
+      proposed_amount: chosenQuot ? String(chosenQuot.total_amount) : (request.estimated_budget ? String(request.estimated_budget) : '0'),
       decision: 'Approved',
       decision_date: new Date().toISOString().split('T')[0],
-      approved_amount: selectedQuot ? String(selectedQuot.total_amount) : (request.estimated_budget ? String(request.estimated_budget) : '0'),
-      decision_remarks: '',
+      approved_amount: chosenQuot ? String(chosenQuot.total_amount) : (request.estimated_budget ? String(request.estimated_budget) : '0'),
+      decision_remarks: chosenQuot?.selection_rationale || '',
       is_recorded_external: false
     });
     setShowApprovalModal(true);
@@ -1505,7 +1507,7 @@ export const RequestDetails = () => {
                       required
                     >
                       <option value="">-- Choose Authority --</option>
-                      {orgAuthorities.map(a => (
+                      {availableAuthorities.map(a => (
                         <option key={a.id} value={a.id}>{a.title} {a.officer_name ? `(${a.officer_name})` : ''}</option>
                       ))}
                     </select>
