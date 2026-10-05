@@ -1,10 +1,20 @@
 -- =====================================================================
 -- NOC Approval & Quotation Management System
--- Migration: Cross-Device Real-Time Synchronization & RLS Fix
--- Run this in Supabase SQL Editor -> New Query
+-- Migration: Cross-Device Real-Time Synchronization, Foreign Key & RLS Fix
+-- Copy and run this in Supabase SQL Editor -> New Query
 -- =====================================================================
 
--- 1. Ensure all operational tables have RLS policies for both anon & authenticated users
+-- 1. Ensure Default Organizations Exist
+INSERT INTO public.organizations (id, code, name, description) VALUES
+('11111111-1111-1111-1111-111111111111', 'CVM', 'Charutar Vidya Mandal', 'CVM Managed Institutes & Colleges'),
+('22222222-2222-2222-2222-222222222222', 'CVMU', 'Charutar Vidya Mandal University', 'CVMU Constituent Colleges & Departments')
+ON CONFLICT (code) DO NOTHING;
+
+-- 2. Relax strict NOT NULL on foreign keys to prevent insert failures for ad-hoc requests
+ALTER TABLE public.requests ALTER COLUMN org_id DROP NOT NULL;
+ALTER TABLE public.requests ALTER COLUMN institute_id DROP NOT NULL;
+
+-- 3. Comprehensive RLS Policies for Anon (public client) and Authenticated users
 DO $$
 BEGIN
     -- Organizations
@@ -127,11 +137,11 @@ BEGIN
 
     -- Historical Stock Notes
     DROP POLICY IF EXISTS "Allow anon and auth read stock_notes" ON public.historical_stock_notes;
-    DROP POLICY IF EXISTS "Allow authenticated read historical_stock_notes" ON public.historical_stock_notes;
+    DROP POLICY IF EXISTS "Allow authenticated read stock_notes" ON public.historical_stock_notes;
     CREATE POLICY "Allow anon and auth read stock_notes" ON public.historical_stock_notes FOR SELECT TO anon, authenticated USING (true);
 END $$;
 
--- 2. Enable Real-Time Publication for All Operational Tables
+-- 4. Enable Real-Time Publication for All Operational Tables
 ALTER PUBLICATION supabase_realtime ADD TABLE public.requests;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.request_items;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.quotations;

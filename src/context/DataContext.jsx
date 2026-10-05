@@ -13,9 +13,12 @@ import {
   DEFAULT_USERS
 } from '../data/initialData';
 import { useAuth } from './AuthContext';
-import { supabase as initialSupabase, isSupabaseConfigured as initialIsConfigured, getActiveSupabaseUrl, getActiveSupabaseAnonKey } from '../supabaseClient';
+import { supabase as initialSupabase, isSupabaseConfigured as initialIsConfigured } from '../supabaseClient';
 
 const DataContext = createContext(null);
+
+export const CVM_ORG_UUID = '11111111-1111-1111-1111-111111111111';
+export const CVMU_ORG_UUID = '22222222-2222-2222-2222-222222222222';
 
 // Safe UUID generator
 export const generateUUID = () => {
@@ -33,7 +36,7 @@ export const generateUUID = () => {
   });
 };
 
-const isUUID = (str) => {
+export const isUUID = (str) => {
   return typeof str === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 };
 
@@ -45,8 +48,8 @@ export const DataProvider = ({ children }) => {
   const [activeClient, setActiveClient] = useState(() => initialSupabase);
   const [isConfigured, setIsConfigured] = useState(() => initialIsConfigured);
 
-  // Sync state tracking
-  const [syncStatus, setSyncStatus] = useState(initialIsConfigured ? 'syncing' : 'local');
+  // Sync state tracking: 'synced' | 'syncing' | 'error' | 'local'
+  const [syncStatus, setSyncStatus] = useState('syncing');
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [syncError, setSyncError] = useState(null);
   const [migrationStatus, setMigrationStatus] = useState({ migrating: false, message: '' });
@@ -139,6 +142,39 @@ export const DataProvider = ({ children }) => {
   useEffect(() => { localStorage.setItem('noc_stock_notes', JSON.stringify(stockNotes)); }, [stockNotes]);
   useEffect(() => { localStorage.setItem('noc_letter_settings', JSON.stringify(letterSettings)); }, [letterSettings]);
 
+  // Resolution Helpers for Supabase foreign keys
+  const resolveOrgUuid = useCallback((orgIdOrCode) => {
+    if (isUUID(orgIdOrCode)) return orgIdOrCode;
+    const match = organizations.find(o => o.id === orgIdOrCode || o.code === orgIdOrCode);
+    if (match && isUUID(match.id)) return match.id;
+    if (orgIdOrCode === 'org-cvmu' || orgIdOrCode === 'CVMU') return CVMU_ORG_UUID;
+    return CVM_ORG_UUID;
+  }, [organizations]);
+
+  const resolveInstUuid = useCallback((instId) => {
+    if (!instId) return null;
+    if (isUUID(instId)) return instId;
+    const match = institutes.find(i => i.id === instId || i.code === instId || i.name === instId);
+    if (match && isUUID(match.id)) return match.id;
+    return null;
+  }, [institutes]);
+
+  const resolveAgencyUuid = useCallback((agencyId) => {
+    if (!agencyId) return null;
+    if (isUUID(agencyId)) return agencyId;
+    const match = agencies.find(a => a.id === agencyId || a.name === agencyId);
+    if (match && isUUID(match.id)) return match.id;
+    return null;
+  }, [agencies]);
+
+  const resolveAuthUuid = useCallback((authId) => {
+    if (!authId) return null;
+    if (isUUID(authId)) return authId;
+    const match = authorities.find(a => a.id === authId || a.title === authId);
+    if (match && isUUID(match.id)) return match.id;
+    return null;
+  }, [authorities]);
+
   // Handle Runtime Supabase Configuration Changes
   useEffect(() => {
     const handleConfigChange = (e) => {
@@ -223,11 +259,11 @@ export const DataProvider = ({ children }) => {
   }, [currentUser, activeClient]);
 
   // Transform Supabase Relational Request into Frontend Structure
-  const transformSupabaseRequest = (row) => {
+  const transformSupabaseRequest = useCallback((row) => {
     return {
       id: row.id,
       request_no: row.request_no,
-      org_id: row.org_id,
+      org_id: row.org_id || (row.org_code === 'CVMU' ? 'org-cvmu' : 'org-cvm'),
       institute_id: row.institute_id,
       request_date: row.request_date || new Date().toISOString().split('T')[0],
       clg_out_no: row.clg_out_no || '',
@@ -344,7 +380,7 @@ export const DataProvider = ({ children }) => {
         created_at: b.created_at
       }))
     };
-  };
+  }, []);
 
   // Safe Migration of Local Laptop Requests to Supabase Cloud
   const syncLocalToCloud = useCallback(async () => {
@@ -352,21 +388,30 @@ export const DataProvider = ({ children }) => {
       return { ok: false, message: 'Supabase is not connected. Configure Supabase in Settings first.' };
     }
 
-    setMigrationStatus({ migrating: true, message: 'Checking cloud database records...' });
+    setMigrationStatus({ migrating: true, message: 'Analyzing local and cloud records...' });
     let migratedCount = 0;
     let skippedCount = 0;
     const errors = [];
 
     try {
-      // Get all existing request numbers from Supabase
+      // 1. Get all existing request numbers from Supabase
       const { data: cloudReqs, error: fetchErr } = await activeClient.from('requests').select('request_no');
       if (fetchErr) {
-        throw new Error(`Failed to query Supabase: ${fetchErr.message}`);
+        throw new Error(`Failed to query Supabase requests: ${fetchErr.message}`);
       }
 
       const existingNos = new Set((cloudReqs || []).map(r => r.request_no));
 
-      // Get current local requests
+      // 2. Fetch master organizations and institutes from Supabase to resolve IDs
+      const [orgsRes, instsRes] = await Promise.all([
+        activeClient.from('organizations').select('id, code'),
+        activeClient.from('institutes').select('id, code, name, org_id')
+      ]);
+
+      const dbOrgs = orgsRes.data || [];
+      const dbInsts = instsRes.data || [];
+
+      // 3. Read current local requests
       const savedRaw = localStorage.getItem('noc_requests');
       const localList = savedRaw ? JSON.parse(savedRaw) : requests;
 
@@ -374,18 +419,35 @@ export const DataProvider = ({ children }) => {
         if (!existingNos.has(req.request_no)) {
           // Unmigrated request (e.g. created on laptop in local mode)
           const targetReqId = isUUID(req.id) ? req.id : generateUUID();
+
+          // Resolve foreign key UUIDs
+          let matchedOrgUuid = CVM_ORG_UUID;
+          if (req.org_id === 'org-cvmu' || req.org_id === 'CVMU') {
+            matchedOrgUuid = dbOrgs.find(o => o.code === 'CVMU')?.id || CVMU_ORG_UUID;
+          } else {
+            matchedOrgUuid = dbOrgs.find(o => o.code === 'CVM')?.id || CVM_ORG_UUID;
+          }
+
+          let matchedInstUuid = null;
+          if (isUUID(req.institute_id)) {
+            matchedInstUuid = req.institute_id;
+          } else {
+            const instMatch = dbInsts.find(i => i.id === req.institute_id || i.code === req.institute_id || i.name === req.institute_id);
+            matchedInstUuid = instMatch?.id || dbInsts[0]?.id || null;
+          }
+
           const { error: insErr } = await activeClient.from('requests').insert({
             id: targetReqId,
             request_no: req.request_no,
-            org_id: isUUID(req.org_id) ? req.org_id : null,
-            institute_id: isUUID(req.institute_id) ? req.institute_id : null,
+            org_id: matchedOrgUuid,
+            institute_id: matchedInstUuid,
             request_date: req.request_date || new Date().toISOString().split('T')[0],
             clg_out_no: req.clg_out_no || null,
             clg_in_no: req.clg_in_no || null,
             request_type: req.request_type || 'New Purchase',
             title: req.title,
             description: req.description || null,
-            estimated_budget: req.estimated_budget,
+            estimated_budget: req.estimated_budget !== null ? parseFloat(req.estimated_budget) : null,
             current_stage: req.current_stage || 'requirement',
             overall_status: req.overall_status || 'Pending Quotations',
             internal_notes: req.internal_notes || null,
@@ -409,7 +471,7 @@ export const DataProvider = ({ children }) => {
                 quantity: parseInt(it.quantity) || 1,
                 unit: it.unit || 'Nos',
                 specifications: it.specifications || null,
-                estimated_unit_price: it.estimated_unit_price
+                estimated_unit_price: it.estimated_unit_price ? parseFloat(it.estimated_unit_price) : null
               }));
               await activeClient.from('request_items').insert(itemPayloads);
             }
@@ -421,10 +483,10 @@ export const DataProvider = ({ children }) => {
 
       setMigrationStatus({
         migrating: false,
-        message: `Migration complete: ${migratedCount} local requests uploaded to cloud, ${skippedCount} already synced.`
+        message: `Migration successful: ${migratedCount} laptop request(s) uploaded to Supabase cloud. ${skippedCount} already present.`
       });
 
-      // Refetch from cloud after migration
+      // Refetch from cloud after migration to sync all state
       fetchCloudData();
       return { ok: true, migratedCount, skippedCount, errors };
     } catch (err) {
@@ -475,7 +537,7 @@ export const DataProvider = ({ children }) => {
       ]);
 
       if (reqsRes.error) {
-        throw new Error(reqsRes.error.message);
+        throw new Error(`Requests query failed: ${reqsRes.error.message} (Code: ${reqsRes.error.code || 'UNKNOWN'}). Verify RLS permissions.`);
       }
 
       if (orgsRes.data && orgsRes.data.length > 0) {
@@ -513,7 +575,7 @@ export const DataProvider = ({ children }) => {
       setSyncStatus('error');
       setSyncError(err.message);
     }
-  }, [activeClient]);
+  }, [activeClient, transformSupabaseRequest]);
 
   // Initialize Real-time Cloud Connection and Event Subscriptions
   useEffect(() => {
@@ -523,6 +585,19 @@ export const DataProvider = ({ children }) => {
     }
 
     fetchCloudData();
+
+    // Check if there are unmigrated requests in localStorage to upload automatically
+    const savedRaw = localStorage.getItem('noc_requests');
+    if (savedRaw) {
+      try {
+        const localList = JSON.parse(savedRaw);
+        if (localList.length > 4) {
+          syncLocalToCloud();
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
 
     // Subscribe to all changes on public schema tables
     const channel = activeClient
@@ -574,7 +649,7 @@ export const DataProvider = ({ children }) => {
       window.removeEventListener('focus', onWindowFocus);
       window.removeEventListener('online', onOnline);
     };
-  }, [activeClient, fetchCloudData]);
+  }, [activeClient, fetchCloudData, syncLocalToCloud]);
 
   // Helper to generate Next Request Number e.g. NOC-2026-0002
   const getNextRequestNo = () => {
@@ -596,6 +671,9 @@ export const DataProvider = ({ children }) => {
   const createRequest = async (formData) => {
     const newReqId = generateUUID();
     const reqNo = formData.request_no || getNextRequestNo();
+
+    const targetOrgUuid = resolveOrgUuid(formData.org_id);
+    const targetInstUuid = resolveInstUuid(formData.institute_id);
 
     const newRequest = {
       id: newReqId,
@@ -644,8 +722,8 @@ export const DataProvider = ({ children }) => {
         const { error: reqErr } = await activeClient.from('requests').insert({
           id: newReqId,
           request_no: reqNo,
-          org_id: isUUID(newRequest.org_id) ? newRequest.org_id : null,
-          institute_id: isUUID(newRequest.institute_id) ? newRequest.institute_id : null,
+          org_id: targetOrgUuid,
+          institute_id: targetInstUuid,
           request_date: newRequest.request_date,
           clg_out_no: newRequest.clg_out_no || null,
           clg_in_no: newRequest.clg_in_no || null,
@@ -657,15 +735,17 @@ export const DataProvider = ({ children }) => {
           overall_status: newRequest.overall_status,
           internal_notes: newRequest.internal_notes || null,
           is_historical: false,
-          created_by: currentUser?.id && isUUID(currentUser.id) ? currentUser.id : null,
           created_at: newRequest.created_at
         });
 
         if (reqErr) {
-          console.error('Supabase createRequest error:', reqErr.message);
+          console.error('Supabase createRequest insert error:', reqErr.message);
           setSyncStatus('error');
-          setSyncError(`Supabase write error: ${reqErr.message}`);
+          setSyncError(`Database insert failed: ${reqErr.message}`);
+          alert(`Warning: Request created locally, but cloud sync failed: ${reqErr.message}`);
         } else {
+          setSyncStatus('synced');
+          setSyncError(null);
           if (newRequest.items.length > 0) {
             const itemsPayload = newRequest.items.map(it => ({
               id: it.id,
@@ -736,6 +816,8 @@ export const DataProvider = ({ children }) => {
       ? parseFloat(quotationData.total_amount) 
       : (subtotal + taxAmt + otherCharges);
 
+    const agencyUuid = resolveAgencyUuid(quotationData.agency_id);
+
     const newQuot = {
       id: quotId,
       agency_id: quotationData.agency_id,
@@ -788,7 +870,7 @@ export const DataProvider = ({ children }) => {
         await activeClient.from('quotations').insert({
           id: quotId,
           request_id: reqId,
-          agency_id: isUUID(newQuot.agency_id) ? newQuot.agency_id : null,
+          agency_id: agencyUuid,
           quotation_no: newQuot.quotation_no || null,
           quotation_date: newQuot.quotation_date || null,
           subtotal_amount: newQuot.subtotal_amount,
@@ -800,7 +882,6 @@ export const DataProvider = ({ children }) => {
           delivery_timeline: newQuot.delivery_timeline || null,
           remarks: newQuot.remarks || null,
           is_selected: false,
-          created_by: currentUser?.id && isUUID(currentUser.id) ? currentUser.id : null,
           created_at: newQuot.created_at
         });
 
@@ -854,6 +935,9 @@ export const DataProvider = ({ children }) => {
   // 5. Submit Approval / Record Decision
   const submitApproval = async (reqId, approvalData) => {
     const apprId = generateUUID();
+    const authUuid = resolveAuthUuid(approvalData.authority_id);
+    const agencyUuid = resolveAgencyUuid(approvalData.selected_agency_id);
+
     const newApproval = {
       id: apprId,
       authority_id: approvalData.authority_id,
@@ -910,8 +994,8 @@ export const DataProvider = ({ children }) => {
         await activeClient.from('approvals').insert({
           id: apprId,
           request_id: reqId,
-          authority_id: isUUID(newApproval.authority_id) ? newApproval.authority_id : null,
-          selected_agency_id: isUUID(newApproval.selected_agency_id) ? newApproval.selected_agency_id : null,
+          authority_id: authUuid,
+          selected_agency_id: agencyUuid,
           submission_date: newApproval.submission_date || null,
           proposed_amount: newApproval.proposed_amount,
           decision: newApproval.decision,
@@ -919,7 +1003,6 @@ export const DataProvider = ({ children }) => {
           approved_amount: newApproval.approved_amount,
           decision_remarks: newApproval.decision_remarks || null,
           is_recorded_external: newApproval.is_recorded_external,
-          decided_by: currentUser?.id && isUUID(currentUser.id) ? currentUser.id : null,
           created_at: newApproval.created_at
         });
 
@@ -1012,7 +1095,7 @@ export const DataProvider = ({ children }) => {
           await activeClient.from('work_records').insert({
             id: wrkId,
             request_id: reqId,
-            agency_id: isUUID(initialWorkRecord.agency_id) ? initialWorkRecord.agency_id : null,
+            agency_id: resolveAgencyUuid(initialWorkRecord.agency_id),
             status: 'Not Started',
             remarks: initialWorkRecord.remarks,
             created_at: new Date().toISOString()
@@ -1089,7 +1172,7 @@ export const DataProvider = ({ children }) => {
         await activeClient.from('work_records').upsert({
           id: updatedWorkRecord.id,
           request_id: reqId,
-          agency_id: isUUID(updatedWorkRecord.agency_id) ? updatedWorkRecord.agency_id : null,
+          agency_id: resolveAgencyUuid(updatedWorkRecord.agency_id),
           status: updatedWorkRecord.status,
           start_date: updatedWorkRecord.start_date || null,
           completion_date: updatedWorkRecord.completion_date || null,
@@ -1104,7 +1187,6 @@ export const DataProvider = ({ children }) => {
           previous_status: req?.work_record?.status || 'Not Started',
           new_status: workData.status,
           remarks: workData.remarks || null,
-          changed_by: currentUser?.id && isUUID(currentUser.id) ? currentUser.id : null,
           created_at: new Date().toISOString()
         });
 
@@ -1122,6 +1204,8 @@ export const DataProvider = ({ children }) => {
   // 8. Add / Update Bill
   const addBill = async (reqId, billData) => {
     const billId = generateUUID();
+    const agencyUuid = resolveAgencyUuid(billData.agency_id);
+
     const newBill = {
       id: billId,
       agency_id: billData.agency_id,
@@ -1167,7 +1251,7 @@ export const DataProvider = ({ children }) => {
         await activeClient.from('bills').insert({
           id: billId,
           request_id: reqId,
-          agency_id: isUUID(newBill.agency_id) ? newBill.agency_id : null,
+          agency_id: agencyUuid,
           bill_no: newBill.bill_no,
           bill_date: newBill.bill_date,
           submitted_amount: newBill.submitted_amount,
@@ -1311,7 +1395,6 @@ export const DataProvider = ({ children }) => {
           file_path: newDoc.file_path,
           file_size: newDoc.file_size,
           mime_type: newDoc.mime_type,
-          uploaded_by: currentUser?.id && isUUID(currentUser.id) ? currentUser.id : null,
           is_scanned: newDoc.is_scanned,
           created_at: newDoc.created_at
         });
@@ -1326,6 +1409,7 @@ export const DataProvider = ({ children }) => {
   // Master Data CRUD methods
   const addInstitute = async (data) => {
     const id = generateUUID();
+    const orgUuid = resolveOrgUuid(data.org_id);
     const newInst = { id, ...data, is_active: true };
     setInstitutes(prev => [...prev, newInst]);
     logAudit('CREATE_INSTITUTE', 'institute', data.name, data);
@@ -1335,7 +1419,7 @@ export const DataProvider = ({ children }) => {
       try {
         await activeClient.from('institutes').insert({
           id,
-          org_id: isUUID(data.org_id) ? data.org_id : null,
+          org_id: orgUuid,
           name: data.name,
           code: data.code || null,
           contact_person: data.contact_person || null,
@@ -1408,6 +1492,7 @@ export const DataProvider = ({ children }) => {
 
   const addAuthority = async (data) => {
     const id = generateUUID();
+    const orgUuid = resolveOrgUuid(data.org_id);
     const newAuth = { id, ...data, is_active: true };
     setAuthorities(prev => [...prev, newAuth]);
     logAudit('CREATE_AUTHORITY', 'authority', data.title, data);
@@ -1417,7 +1502,7 @@ export const DataProvider = ({ children }) => {
       try {
         await activeClient.from('approval_authorities').insert({
           id,
-          org_id: isUUID(data.org_id) ? data.org_id : null,
+          org_id: orgUuid,
           title: data.title,
           officer_name: data.officer_name || null,
           sort_order: data.sort_order || 0,
@@ -1474,11 +1559,13 @@ export const DataProvider = ({ children }) => {
     if (activeClient) {
       try {
         for (const req of importedRequests) {
+          const orgUuid = resolveOrgUuid(req.org_id);
+          const instUuid = resolveInstUuid(req.institute_id);
           await activeClient.from('requests').insert({
             id: isUUID(req.id) ? req.id : generateUUID(),
             request_no: req.request_no,
-            org_id: isUUID(req.org_id) ? req.org_id : null,
-            institute_id: isUUID(req.institute_id) ? req.institute_id : null,
+            org_id: orgUuid,
+            institute_id: instUuid,
             request_date: req.request_date,
             request_type: req.request_type,
             title: req.title,
