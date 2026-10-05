@@ -1493,7 +1493,7 @@ export const DataProvider = ({ children }) => {
       if (targetId && !deletedIds.includes(targetId)) deletedIds.push(targetId);
       if (targetNo && !deletedIds.includes(targetNo)) deletedIds.push(targetNo);
       if (reqId && !deletedIds.includes(reqId)) deletedIds.push(reqId);
-      localStorage.setItem('noc_deleted_ids', JSON.stringify(deletedIds.slice(-300)));
+      localStorage.setItem('noc_deleted_ids', JSON.stringify(deletedIds.slice(-500)));
     } catch (_) {}
 
     // 1. Instantly update React state
@@ -1514,16 +1514,30 @@ export const DataProvider = ({ children }) => {
     if (activeClient) {
       try {
         if (isUUID(targetId)) {
-          // Delete child records first to ensure no foreign key constraint issues
-          await activeClient.from('documents').delete().eq('request_id', targetId);
-          await activeClient.from('bills').delete().eq('request_id', targetId);
-          await activeClient.from('work_status_history').delete().eq('request_id', targetId);
-          await activeClient.from('work_records').delete().eq('request_id', targetId);
-          await activeClient.from('approval_letters').delete().eq('request_id', targetId);
-          await activeClient.from('approvals').delete().eq('request_id', targetId);
-          await activeClient.from('quotation_items').delete().eq('request_id', targetId);
-          await activeClient.from('quotations').delete().eq('request_id', targetId);
-          await activeClient.from('request_items').delete().eq('request_id', targetId);
+          // Delete child records safely matching exact database schema
+          try {
+            const { data: quots } = await activeClient.from('quotations').select('id').eq('request_id', targetId);
+            if (quots && quots.length > 0) {
+              const qIds = quots.map(q => q.id);
+              await activeClient.from('quotation_items').delete().in('quotation_id', qIds);
+            }
+          } catch (_) {}
+
+          try {
+            const { data: wrs } = await activeClient.from('work_records').select('id').eq('request_id', targetId);
+            if (wrs && wrs.length > 0) {
+              const wrIds = wrs.map(w => w.id);
+              await activeClient.from('work_status_history').delete().in('work_record_id', wrIds);
+            }
+          } catch (_) {}
+
+          try { await activeClient.from('documents').delete().eq('request_id', targetId); } catch (_) {}
+          try { await activeClient.from('bills').delete().eq('request_id', targetId); } catch (_) {}
+          try { await activeClient.from('work_records').delete().eq('request_id', targetId); } catch (_) {}
+          try { await activeClient.from('approval_letters').delete().eq('request_id', targetId); } catch (_) {}
+          try { await activeClient.from('approvals').delete().eq('request_id', targetId); } catch (_) {}
+          try { await activeClient.from('quotations').delete().eq('request_id', targetId); } catch (_) {}
+          try { await activeClient.from('request_items').delete().eq('request_id', targetId); } catch (_) {}
 
           const { error } = await activeClient.from('requests').delete().eq('id', targetId);
           if (error) {
