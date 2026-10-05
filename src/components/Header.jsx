@@ -157,16 +157,16 @@ export const Header = ({ onToggleSidebar }) => {
             <span className="header-btn-text">Reset Demo</span>
           </button>
 
-          {/* Role & User Switcher */}
+          {/* Role & User Switcher / Profile Popover */}
           <div style={{ position: 'relative' }}>
             <button 
               className="btn btn-secondary btn-sm header-user-btn"
               onClick={() => setShowUserMenu(!showUserMenu)}
-              aria-label="Switch user role"
+              aria-label="User profile and role menu"
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
               <Shield size={14} color="#2563eb" />
-              <span className="header-user-name" style={{ fontWeight: 600 }}>{currentUser?.full_name?.split(' ')[0]}</span>
+              <span className="header-user-name" style={{ fontWeight: 600 }}>{currentUser?.full_name?.split(' ')[0] || 'User'}</span>
               <span className="header-user-role" style={{ fontSize: 11, color: '#64748b' }}>({currentUser?.role?.replace('_', ' ')})</span>
             </button>
 
@@ -178,43 +178,98 @@ export const Header = ({ onToggleSidebar }) => {
                   right: 0,
                   top: '100%',
                   marginTop: 6,
-                  width: 'min(280px, calc(100vw - 32px))',
+                  width: 'min(300px, calc(100vw - 32px))',
                   background: 'white',
                   border: '1px solid #e2e8f0',
-                  borderRadius: 8,
-                  boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                  borderRadius: 10,
+                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.15)',
                   zIndex: 1000,
-                  padding: 8
+                  padding: 10
                 }}
               >
-                <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                  Switch Test Role / Identity
+                {/* Active User Details Card */}
+                <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 8, marginBottom: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{currentUser?.full_name || 'Authenticated User'}</div>
+                  <div style={{ fontSize: 12, color: '#475569', marginTop: 2, wordBreak: 'break-all' }}>{currentUser?.email}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                    <span className="badge badge-info" style={{ fontSize: 10, textTransform: 'capitalize' }}>
+                      {currentUser?.role?.replace('_', ' ')}
+                    </span>
+                    {currentUser?.team && (
+                      <span className="badge badge-pending" style={{ fontSize: 10 }}>
+                        {currentUser.team}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {DEFAULT_USERS.map(u => (
-                  <div
-                    key={u.id}
-                    onClick={() => {
-                      switchDemoUser(u);
+
+                {/* Switch Identity for Offline/Testing */}
+                {!isConfigured && (
+                  <>
+                    <div style={{ padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Switch Test Identity
+                    </div>
+                    {DEFAULT_USERS.map(u => (
+                      <div
+                        key={u.id}
+                        onClick={() => {
+                          switchDemoUser(u);
+                          setShowUserMenu(false);
+                        }}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 6,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          cursor: 'pointer',
+                          background: currentUser?.id === u.id ? '#eff6ff' : 'transparent',
+                          color: currentUser?.id === u.id ? '#2563eb' : '#0f172a'
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>{u.full_name}</div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>{u.email}</div>
+                        </div>
+                        {currentUser?.id === u.id && <Check size={16} />}
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {/* Logout Button */}
+                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 8, marginTop: 8 }}>
+                  <button
+                    onClick={async () => {
                       setShowUserMenu(false);
+                      const { logout } = useAuth();
+                      // call logout directly from hook
                     }}
                     style={{
-                      padding: '8px 10px',
+                      width: '100%',
+                      padding: '8px 12px',
                       borderRadius: 6,
+                      border: '1px solid #fee2e2',
+                      background: '#fef2f2',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 600,
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer',
-                      background: currentUser?.id === u.id ? '#eff6ff' : 'transparent',
-                      color: currentUser?.id === u.id ? '#2563eb' : '#0f172a'
+                      justifyContent: 'center',
+                      gap: 6
+                    }}
+                    onClickCapture={async (e) => {
+                      e.stopPropagation();
+                      setShowUserMenu(false);
+                      await logout();
+                      navigate('/login');
                     }}
                   >
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{u.full_name}</div>
-                      <div style={{ fontSize: 11, color: '#64748b' }}>{u.email} ({u.role})</div>
-                    </div>
-                    {currentUser?.id === u.id && <Check size={16} />}
-                  </div>
-                ))}
+                    <span>Sign Out from Portal</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>

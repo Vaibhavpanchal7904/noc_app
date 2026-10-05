@@ -8,7 +8,8 @@ import {
   INITIAL_AGENCIES,
   INITIAL_AUTHORITIES,
   INITIAL_SAMPLE_REQUESTS,
-  INITIAL_STOCK_NOTES
+  INITIAL_STOCK_NOTES,
+  INITIAL_TEAM_MEMBERS
 } from '../src/data/initialData.js';
 
 import { formatCurrency, formatDate } from '../src/utils/pdfGenerator.js';
@@ -115,6 +116,37 @@ console.log('\nTest Suite 8: Date Format Normalization');
 const formatted = formatDate('2026-10-04');
 assert(formatted.includes('Oct') && formatted.includes('2026'), 'Date formatted correctly');
 
+// Test 9: NOC Team & Elecon Engineers Directory Integrity (Section 8)
+console.log('\nTest Suite 9: Team Directory & Personnel Roster');
+
+assert(INITIAL_TEAM_MEMBERS.length === 8, `Total 8 team members initialized (found ${INITIAL_TEAM_MEMBERS.length})`);
+
+const nocTeam = INITIAL_TEAM_MEMBERS.filter(m => m.team === 'NOC Team');
+const eleconTeam = INITIAL_TEAM_MEMBERS.filter(m => m.team === 'Elecon Engineers');
+
+assert(nocTeam.length === 6, `6 NOC Team members configured (found ${nocTeam.length})`);
+assert(eleconTeam.length === 2, `2 Elecon Engineers configured (found ${eleconTeam.length})`);
+
+// Verify exact spelling of each NOC Team member
+const nocNames = nocTeam.map(m => m.full_name);
+assert(nocNames.includes('Bharat Chauhan'), 'Bharat Chauhan present in NOC Team');
+assert(nocNames.includes('Shubhash Patel'), 'Shubhash Patel present in NOC Team');
+assert(nocNames.includes('Gaurang Patel'), 'Gaurang Patel present in NOC Team');
+assert(nocNames.includes('Harshdeep Patel'), 'Harshdeep Patel present in NOC Team');
+assert(nocNames.includes('Shyamal Solnaki'), 'Shyamal Solnaki present in NOC Team');
+assert(nocNames.includes('Vaibhav Panchal'), 'Vaibhav Panchal present in NOC Team');
+
+// Verify exact spelling of Elecon Engineers
+const eleconNames = eleconTeam.map(m => m.full_name);
+assert(eleconNames.includes('Ajit Patel'), 'Ajit Patel present in Elecon Engineers');
+assert(eleconNames.includes('Mansur Pathan'), 'Mansur Pathan present in Elecon Engineers');
+
+// Verify no invented email addresses or phones in initial seeds
+const hasInventedEmails = INITIAL_TEAM_MEMBERS.some(m => m.email !== null);
+const hasInventedPhones = INITIAL_TEAM_MEMBERS.some(m => m.phone !== null);
+assert(!hasInventedEmails, 'Initial team members have no invented emails');
+assert(!hasInventedPhones, 'Initial team members have no invented phone numbers');
+
 console.log('\n====================================================');
 console.log(`Test Execution Complete: ${passed} Passed, ${failed} Failed`);
 console.log('====================================================');
@@ -122,3 +154,4 @@ console.log('====================================================');
 if (failed > 0) {
   process.exit(1);
 }
+

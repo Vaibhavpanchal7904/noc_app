@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   FileText,
@@ -17,6 +17,7 @@ import {
   BarChart3,
   UploadCloud,
   UserCheck,
+  Contact,
   History,
   Sliders,
   LogOut,
@@ -28,10 +29,17 @@ import { useData } from '../context/DataContext';
 
 export const Sidebar = ({ isOpen, onClose }) => {
   const { currentUser, role, logout } = useAuth();
-  const { requests, documents } = useData();
+  const { requests, teamMembers = [] } = useData();
+  const navigate = useNavigate();
 
   const pendingApprovalsCount = requests.filter(r => r.overall_status === 'Awaiting Approval').length;
   const pendingBillsCount = requests.filter(r => r.bills?.some(b => b.bill_status === 'Submitted')).length;
+
+  const handleLogout = async () => {
+    onClose?.();
+    await logout();
+    navigate('/login');
+  };
 
   return (
     <aside className={`sidebar ${isOpen ? 'open' : ''}`} aria-label="Main Navigation">
@@ -129,7 +137,18 @@ export const Sidebar = ({ isOpen, onClose }) => {
           <span>Approval Authorities</span>
         </NavLink>
 
-        <div className="sidebar-section-title">Governance & Tools</div>
+        <div className="sidebar-section-title">Team & Governance</div>
+        <NavLink to="/team" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={onClose}>
+          <Contact size={18} />
+          <span>Team Directory</span>
+          <span className="nav-link-badge" style={{ backgroundColor: '#2563eb' }}>{teamMembers.length}</span>
+        </NavLink>
+
+        <NavLink to="/users" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={onClose}>
+          <UserCheck size={18} />
+          <span>User Access & Roles</span>
+        </NavLink>
+
         <NavLink to="/reports" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={onClose}>
           <BarChart3 size={18} />
           <span>Reports & Analytics</span>
@@ -138,11 +157,6 @@ export const Sidebar = ({ isOpen, onClose }) => {
         <NavLink to="/import-export" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={onClose}>
           <UploadCloud size={18} />
           <span>Import / Export (CSV)</span>
-        </NavLink>
-
-        <NavLink to="/users" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={onClose}>
-          <UserCheck size={18} />
-          <span>User Management</span>
         </NavLink>
 
         <NavLink to="/audit-logs" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={onClose}>
@@ -163,8 +177,8 @@ export const Sidebar = ({ isOpen, onClose }) => {
 
       <div className="sidebar-footer">
         <div className="user-snippet">
-          <div className="user-avatar">
-            {currentUser?.full_name ? currentUser.full_name.charAt(0) : 'U'}
+          <div className="user-avatar" style={{ background: '#2563eb', color: '#ffffff' }}>
+            {currentUser?.full_name ? currentUser.full_name.charAt(0).toUpperCase() : 'U'}
           </div>
           <div className="user-info-text">
             <div className="user-name">{currentUser?.full_name || 'System User'}</div>
@@ -173,9 +187,9 @@ export const Sidebar = ({ isOpen, onClose }) => {
         </div>
         <button
           className="btn-icon"
-          title="Sign out"
-          onClick={logout}
-          style={{ background: 'transparent', border: 'none', color: '#94a3b8' }}
+          title="Sign out from system"
+          onClick={handleLogout}
+          style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
         >
           <LogOut size={16} />
         </button>
@@ -183,3 +197,4 @@ export const Sidebar = ({ isOpen, onClose }) => {
     </aside>
   );
 };
+

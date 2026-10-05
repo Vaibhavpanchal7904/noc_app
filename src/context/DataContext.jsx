@@ -9,6 +9,7 @@ import {
   INITIAL_AGENCIES,
   INITIAL_AUTHORITIES,
   INITIAL_STOCK_NOTES,
+  INITIAL_TEAM_MEMBERS,
   INITIAL_SAMPLE_REQUESTS,
   DEFAULT_USERS
 } from '../data/initialData';
@@ -75,6 +76,11 @@ export const DataProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : INITIAL_AUTHORITIES;
   });
 
+  const [teamMembers, setTeamMembers] = useState(() => {
+    const saved = localStorage.getItem('noc_team_members');
+    return saved ? JSON.parse(saved) : INITIAL_TEAM_MEMBERS;
+  });
+
   const [requests, setRequests] = useState(() => {
     const saved = localStorage.getItem('noc_requests');
     return saved ? JSON.parse(saved) : INITIAL_SAMPLE_REQUESTS;
@@ -135,6 +141,7 @@ export const DataProvider = ({ children }) => {
   useEffect(() => { localStorage.setItem('noc_institutes', JSON.stringify(institutes)); }, [institutes]);
   useEffect(() => { localStorage.setItem('noc_agencies', JSON.stringify(agencies)); }, [agencies]);
   useEffect(() => { localStorage.setItem('noc_authorities', JSON.stringify(authorities)); }, [authorities]);
+  useEffect(() => { localStorage.setItem('noc_team_members', JSON.stringify(teamMembers)); }, [teamMembers]);
   useEffect(() => { localStorage.setItem('noc_requests', JSON.stringify(requests)); }, [requests]);
   useEffect(() => { localStorage.setItem('noc_documents', JSON.stringify(documents)); }, [documents]);
   useEffect(() => { localStorage.setItem('noc_audit_logs', JSON.stringify(auditLogs)); }, [auditLogs]);
@@ -513,6 +520,7 @@ export const DataProvider = ({ children }) => {
         instsRes,
         agenciesRes,
         authsRes,
+        teamRes,
         stockRes,
         docsRes,
         auditRes,
@@ -522,6 +530,7 @@ export const DataProvider = ({ children }) => {
         activeClient.from('institutes').select('*').order('name'),
         activeClient.from('agencies').select('*').order('name'),
         activeClient.from('approval_authorities').select('*').order('sort_order'),
+        activeClient.from('team_members').select('*').order('created_at'),
         activeClient.from('historical_stock_notes').select('*'),
         activeClient.from('documents').select('*').order('created_at', { ascending: false }),
         activeClient.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
@@ -551,6 +560,9 @@ export const DataProvider = ({ children }) => {
       }
       if (authsRes.data && authsRes.data.length > 0) {
         setAuthorities(authsRes.data);
+      }
+      if (teamRes.data && teamRes.data.length > 0) {
+        setTeamMembers(teamRes.data);
       }
       if (stockRes.data && stockRes.data.length > 0) {
         setStockNotes(stockRes.data);
@@ -635,6 +647,9 @@ export const DataProvider = ({ children }) => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_authorities' }, () => {
         fetchCloudData();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, () => {
+        fetchCloudData();
+      })
       .subscribe();
 
     // Refetch on Window Focus & Network Reconnect
@@ -691,7 +706,7 @@ export const DataProvider = ({ children }) => {
       overall_status: 'Pending Quotations',
       internal_notes: formData.internal_notes || '',
       is_historical: false,
-      created_by: currentUser?.id,
+      created_by: currentUser?.id && isUUID(currentUser.id) ? currentUser.id : null,
       created_at: new Date().toISOString(),
       items: (formData.items || []).map((it, idx) => ({
         id: generateUUID(),
@@ -1530,12 +1545,81 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  // Team Members CRUD
+  const addTeamMember = async (data) => {
+    const id = generateUUID();
+    const newMember = {
+      id,
+      full_name: data.full_name,
+      team: data.team || 'NOC Team',
+      role: data.role || null,
+      email: data.email || null,
+      phone: data.phone || null,
+      is_active: data.is_active !== false,
+      created_at: new Date().toISOString()
+    };
+
+    setTeamMembers(prev => [...prev, newMember]);
+    logAudit('ADD_TEAM_MEMBER', 'team_member', id, newMember);
+    notifyCrossTab();
+
+    if (activeClient) {
+      try {
+        await activeClient.from('team_members').insert({
+          id,
+          full_name: newMember.full_name,
+          team: newMember.team,
+          role: newMember.role,
+          email: newMember.email,
+          phone: newMember.phone,
+          is_active: newMember.is_active
+        });
+      } catch (err) {
+        console.error('Failed to sync new team member to Supabase:', err);
+      }
+    }
+
+    return newMember;
+  };
+
+  const updateTeamMember = async (id, data) => {
+    setTeamMembers(prev => prev.map(m => (m.id === id ? { ...m, ...data, updated_at: new Date().toISOString() } : m)));
+    logAudit('UPDATE_TEAM_MEMBER', 'team_member', id, data);
+    notifyCrossTab();
+
+    if (activeClient) {
+      try {
+        await activeClient.from('team_members').update({
+          ...data,
+          updated_at: new Date().toISOString()
+        }).eq('id', id);
+      } catch (err) {
+        console.error('Failed to sync team member update to Supabase:', err);
+      }
+    }
+  };
+
+  const deleteTeamMember = async (id) => {
+    setTeamMembers(prev => prev.filter(m => m.id !== id));
+    logAudit('DELETE_TEAM_MEMBER', 'team_member', id, { message: 'Member removed from directory' });
+    notifyCrossTab();
+
+    if (activeClient) {
+      try {
+        await activeClient.from('team_members').delete().eq('id', id);
+      } catch (err) {
+        console.error('Failed to delete team member from Supabase:', err);
+      }
+    }
+  };
+
   // Reset to Factory Default Master Data
   const resetToFactoryData = async () => {
     setOrganizations(INITIAL_ORGANIZATIONS);
     setInstitutes(INITIAL_INSTITUTES);
     setAgencies(INITIAL_AGENCIES);
     setAuthorities(INITIAL_AUTHORITIES);
+    setTeamMembers(INITIAL_TEAM_MEMBERS);
     setRequests(INITIAL_SAMPLE_REQUESTS);
     setDocuments([]);
     setStockNotes(INITIAL_STOCK_NOTES);
@@ -1589,6 +1673,7 @@ export const DataProvider = ({ children }) => {
         institutes,
         agencies,
         authorities,
+        teamMembers,
         requests,
         documents,
         auditLogs,
@@ -1621,6 +1706,9 @@ export const DataProvider = ({ children }) => {
         updateAgency,
         addAuthority,
         updateAuthority,
+        addTeamMember,
+        updateTeamMember,
+        deleteTeamMember,
         resetToFactoryData,
         importCsvBatch,
         logAudit,

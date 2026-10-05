@@ -111,6 +111,20 @@ export const DEFAULT_USERS = [
   { id: 'usr-4', email: 'auditor@cvm.gov.in', full_name: 'Internal Auditor', role: 'auditor', is_active: true }
 ];
 
+export const INITIAL_TEAM_MEMBERS = [
+  // NOC Team Members (6)
+  { id: 'team-1', full_name: 'Bharat Chauhan', team: 'NOC Team', role: 'NOC Team Member', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' },
+  { id: 'team-2', full_name: 'Shubhash Patel', team: 'NOC Team', role: 'NOC Team Member', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' },
+  { id: 'team-3', full_name: 'Gaurang Patel', team: 'NOC Team', role: 'NOC Team Member', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' },
+  { id: 'team-4', full_name: 'Harshdeep Patel', team: 'NOC Team', role: 'NOC Team Member', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' },
+  { id: 'team-5', full_name: 'Shyamal Solnaki', team: 'NOC Team', role: 'NOC Team Member', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' },
+  { id: 'team-6', full_name: 'Vaibhav Panchal', team: 'NOC Team', role: 'NOC Team Member', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' },
+
+  // Elecon Engineers (2)
+  { id: 'team-7', full_name: 'Ajit Patel', team: 'Elecon Engineers', role: 'Elecon Engineer', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' },
+  { id: 'team-8', full_name: 'Mansur Pathan', team: 'Elecon Engineers', role: 'Elecon Engineer', email: null, phone: null, is_active: true, created_at: '2026-10-01T09:00:00Z' }
+];
+
 // Realistic Sample Records from Section 8 of Prompt
 export const INITIAL_SAMPLE_REQUESTS = [
   {
