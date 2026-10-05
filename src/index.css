@@ -97,6 +97,8 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  box-sizing: border-box;
+  height: 100%;
 }
 
 body {
@@ -107,8 +109,18 @@ body {
   background-color: var(--bg-app);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
   width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+#root {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 input, button, select, textarea {
@@ -134,9 +146,9 @@ a:hover {
 .app-container {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
   position: relative;
-  overflow-x: hidden;
 }
 
 /* Mobile Sidebar Backdrop */
@@ -844,6 +856,8 @@ textarea.form-control {
   justify-content: center;
   padding: 16px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .modal-dialog {
@@ -853,6 +867,7 @@ textarea.form-control {
   width: 100%;
   max-width: 650px;
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -900,6 +915,7 @@ textarea.form-control {
   padding: 18px 20px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   flex: 1;
 }
 

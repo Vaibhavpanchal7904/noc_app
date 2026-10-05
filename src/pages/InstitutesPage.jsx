@@ -22,8 +22,13 @@ export const InstitutesPage = () => {
     contact_phone: ''
   });
 
+  const isInstCvmu = (inst) => {
+    return inst.org_id === 'org-cvmu' || inst.org_id === '22222222-2222-2222-2222-222222222222' || inst.org_code === 'CVMU';
+  };
+
   const filtered = institutes.filter(inst => {
-    if (selectedOrg !== 'ALL' && inst.org_id !== selectedOrg) return false;
+    if (selectedOrg === 'org-cvm' && isInstCvmu(inst)) return false;
+    if (selectedOrg === 'org-cvmu' && !isInstCvmu(inst)) return false;
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       if (!inst.name.toLowerCase().includes(term) && !inst.code?.toLowerCase().includes(term)) {
@@ -73,8 +78,8 @@ export const InstitutesPage = () => {
     setShowModal(false);
   };
 
-  const cvmCount = institutes.filter(i => i.org_id === 'org-cvm').length;
-  const cvmuCount = institutes.filter(i => i.org_id === 'org-cvmu').length;
+  const cvmCount = institutes.filter(i => !isInstCvmu(i)).length;
+  const cvmuCount = institutes.filter(i => isInstCvmu(i)).length;
 
   return (
     <div>

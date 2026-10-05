@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Plus, Trash2, ArrowLeft, Save, FileText, Camera, AlertCircle } from 'lucide-react';
 import { useData } from '../context/DataContext';
@@ -10,7 +10,7 @@ export const CreateRequest = () => {
   const { permissions } = useAuth();
   const navigate = useNavigate();
 
-  const [orgId, setOrgId] = useState('org-cvm');
+  const [orgId, setOrgId] = useState(() => organizations[0]?.id || 'org-cvm');
   const [instituteId, setInstituteId] = useState('');
   const [requestDate, setRequestDate] = useState(new Date().toISOString().split('T')[0]);
   const [clgOutNo, setClgOutNo] = useState('');
@@ -21,6 +21,18 @@ export const CreateRequest = () => {
   const [estimatedBudget, setEstimatedBudget] = useState('');
   const [internalNotes, setInternalNotes] = useState('');
 
+  // Keep orgId in sync with loaded organizations
+  useEffect(() => {
+    if (organizations.length > 0) {
+      const match = organizations.find(o => o.id === orgId || o.code === (orgId === 'org-cvmu' ? 'CVMU' : 'CVM'));
+      if (match && orgId !== match.id) {
+        setOrgId(match.id);
+      } else if (!match) {
+        setOrgId(organizations[0].id);
+      }
+    }
+  }, [organizations]);
+
   // Multi-Item list
   const [items, setItems] = useState([
     { item_name: '', category: 'IT Hardware', quantity: 1, unit: 'Nos', specifications: '', estimated_unit_price: '' }
@@ -30,8 +42,16 @@ export const CreateRequest = () => {
   const [attachedDocs, setAttachedDocs] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
 
-  // Filter institutes based on chosen organization
-  const filteredInstitutes = institutes.filter(inst => inst.org_id === orgId && inst.is_active);
+  // Filter institutes based on chosen organization (supports UUID and local codes)
+  const selectedOrg = organizations.find(o => o.id === orgId || o.code === orgId);
+  const isSelectedCvmu = selectedOrg?.code === 'CVMU' || orgId === 'org-cvmu' || orgId === 'CVMU' || orgId === '22222222-2222-2222-2222-222222222222';
+
+  const filteredInstitutes = institutes.filter(inst => {
+    if (!inst.is_active) return false;
+    const instOrg = organizations.find(o => o.id === inst.org_id);
+    const isInstCvmu = instOrg?.code === 'CVMU' || inst.org_id === 'org-cvmu' || inst.org_id === 'CVMU' || inst.org_id === '22222222-2222-2222-2222-222222222222';
+    return isSelectedCvmu ? isInstCvmu : !isInstCvmu;
+  });
 
   const handleAddItem = () => {
     setItems(prev => [

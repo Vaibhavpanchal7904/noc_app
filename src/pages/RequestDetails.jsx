@@ -330,6 +330,27 @@ export const RequestDetails = () => {
     }
   };
 
+  const handleSignatoryTitleChange = (newTitle) => {
+    let autoName = letterForm.signatory_name;
+    const cleanTitle = (newTitle || '').trim().toLowerCase();
+    
+    if (cleanTitle === 'chairman') {
+      autoName = 'Er. Bhikhubhai Patel';
+    } else if (cleanTitle.includes('joint secretary') || cleanTitle.includes('hon. joint secretary')) {
+      if (!autoName || (!autoName.includes('Vishal') && !autoName.includes('Rashmikant'))) {
+        autoName = 'Shri Vishal Patel';
+      }
+    } else if (cleanTitle === 'president' || cleanTitle === 'registrar' || cleanTitle.includes('governing body')) {
+      autoName = ''; // CVMU: title only, no names as requested
+    }
+    
+    setLetterForm(prev => ({
+      ...prev,
+      signatory_title: newTitle,
+      signatory_name: autoName
+    }));
+  };
+
   const handleOpenLetterModal = () => {
     const nextNo = getNextLetterNo(org?.code || 'CVM');
     const isCvmu = org?.code === 'CVMU';
@@ -337,20 +358,33 @@ export const RequestDetails = () => {
     const latestApprAuth = authorities.find(a => a.id === latestApproval?.authority_id);
     const defaultAuth = latestApprAuth || availableAuthorities[0] || authorities[0];
 
-    const initialSignatoryName = request.approval_letter?.signatory_name ||
-      defaultAuth?.officer_name ||
-      (isCvmu ? letterSettings.signatoryNameCvmu : letterSettings.signatoryNameCvm);
-
-    const initialSignatoryTitle = request.approval_letter?.signatory_title ||
+    let initialSignatoryTitle = request.approval_letter?.signatory_title ||
       defaultAuth?.title ||
-      (isCvmu ? letterSettings.signatoryTitleCvmu : letterSettings.signatoryTitleCvm);
+      (isCvmu ? 'Registrar' : 'Chairman');
+
+    let initialSignatoryName = request.approval_letter?.signatory_name;
+    if (initialSignatoryName === undefined || initialSignatoryName === null) {
+      if (defaultAuth?.officer_name) {
+        initialSignatoryName = defaultAuth.officer_name;
+      } else if (!isCvmu) {
+        if (initialSignatoryTitle.toLowerCase() === 'chairman') {
+          initialSignatoryName = 'Er. Bhikhubhai Patel';
+        } else if (initialSignatoryTitle.toLowerCase().includes('joint secretary')) {
+          initialSignatoryName = 'Shri Vishal Patel';
+        } else {
+          initialSignatoryName = 'Er. Bhikhubhai Patel';
+        }
+      } else {
+        initialSignatoryName = '';
+      }
+    }
 
     setLetterForm({
-      authority_id: defaultAuth?.id || '',
+      authority_id: request.approval_letter?.authority_id || defaultAuth?.id || '',
       letter_no: request.approval_letter?.letter_no || nextNo,
       letter_date: request.approval_letter?.letter_date || new Date().toISOString().split('T')[0],
       signatory_title: initialSignatoryTitle,
-      signatory_name: initialSignatoryName,
+      signatory_name: initialSignatoryName || '',
       subject: request.approval_letter?.subject || `Sanction order for ${request.title}`,
       dispatch_date: request.approval_letter?.dispatch_date || new Date().toISOString().split('T')[0],
       dispatch_mode: request.approval_letter?.dispatch_mode || 'Internal Dispatch',
@@ -1807,14 +1841,84 @@ export const RequestDetails = () => {
                       </optgroup>
                     )}
                   </select>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, marginBottom: 8 }}>
                     Selecting any authority automatically updates the Signatory Title and Name below.
+                  </div>
+
+                  {/* Quick Designation Preset Chips */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '2px 8px', fontSize: 11, borderRadius: 4, background: letterForm.signatory_title === 'Chairman' ? '#e0f2fe' : '#ffffff', borderColor: letterForm.signatory_title === 'Chairman' ? '#0284c7' : '#cbd5e1' }}
+                      onClick={() => setLetterForm(prev => ({ ...prev, signatory_title: 'Chairman', signatory_name: 'Er. Bhikhubhai Patel' }))}
+                    >
+                      Chairman (Er. Bhikhubhai Patel)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '2px 8px', fontSize: 11, borderRadius: 4, background: letterForm.signatory_title === 'Hon. Joint Secretary' && letterForm.signatory_name?.includes('Vishal') ? '#e0f2fe' : '#ffffff', borderColor: letterForm.signatory_name?.includes('Vishal') ? '#0284c7' : '#cbd5e1' }}
+                      onClick={() => setLetterForm(prev => ({ ...prev, signatory_title: 'Hon. Joint Secretary', signatory_name: 'Shri Vishal Patel' }))}
+                    >
+                      Hon. Joint Secretary (Shri Vishal Patel)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '2px 8px', fontSize: 11, borderRadius: 4, background: letterForm.signatory_title === 'Hon. Joint Secretary' && letterForm.signatory_name?.includes('Rashmikant') ? '#e0f2fe' : '#ffffff', borderColor: letterForm.signatory_name?.includes('Rashmikant') ? '#0284c7' : '#cbd5e1' }}
+                      onClick={() => setLetterForm(prev => ({ ...prev, signatory_title: 'Hon. Joint Secretary', signatory_name: 'Shri Rashmikant Patel' }))}
+                    >
+                      Hon. Joint Secretary (Shri Rashmikant Patel)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '2px 8px', fontSize: 11, borderRadius: 4, background: letterForm.signatory_title === 'President' ? '#f3e8ff' : '#ffffff', borderColor: letterForm.signatory_title === 'President' ? '#9333ea' : '#cbd5e1' }}
+                      onClick={() => setLetterForm(prev => ({ ...prev, signatory_title: 'President', signatory_name: '' }))}
+                    >
+                      President (CVMU)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '2px 8px', fontSize: 11, borderRadius: 4, background: letterForm.signatory_title === 'Registrar' ? '#f3e8ff' : '#ffffff', borderColor: letterForm.signatory_title === 'Registrar' ? '#9333ea' : '#cbd5e1' }}
+                      onClick={() => setLetterForm(prev => ({ ...prev, signatory_title: 'Registrar', signatory_name: '' }))}
+                    >
+                      Registrar (CVMU)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '2px 8px', fontSize: 11, borderRadius: 4, background: letterForm.signatory_title === 'Member of Governing Body' ? '#f3e8ff' : '#ffffff', borderColor: letterForm.signatory_title === 'Member of Governing Body' ? '#9333ea' : '#cbd5e1' }}
+                      onClick={() => setLetterForm(prev => ({ ...prev, signatory_title: 'Member of Governing Body', signatory_name: '' }))}
+                    >
+                      Member of Governing Body (CVMU)
+                    </button>
                   </div>
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label">Signatory Name (Optional for CVMU)</label>
+                    <label className="form-label">Signatory Title / Designation <span className="required">*</span></label>
+                    <input
+                      type="text"
+                      list="signatory-titles-datalist"
+                      className="form-control"
+                      value={letterForm.signatory_title}
+                      onChange={e => handleSignatoryTitleChange(e.target.value)}
+                      placeholder="e.g. Chairman / Registrar / Hon. Joint Secretary"
+                      required
+                    />
+                    <datalist id="signatory-titles-datalist">
+                      {Array.from(new Set(authorities.map(a => a.title).filter(Boolean))).map(title => (
+                        <option key={title} value={title} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Signatory Name (Auto-filled by Designation)</label>
                     <input
                       type="text"
                       list="signatory-officers-datalist"
@@ -1826,24 +1930,6 @@ export const RequestDetails = () => {
                     <datalist id="signatory-officers-datalist">
                       {Array.from(new Set(authorities.map(a => a.officer_name).filter(Boolean))).map(name => (
                         <option key={name} value={name} />
-                      ))}
-                    </datalist>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Signatory Title / Designation <span className="required">*</span></label>
-                    <input
-                      type="text"
-                      list="signatory-titles-datalist"
-                      className="form-control"
-                      value={letterForm.signatory_title}
-                      onChange={e => setLetterForm({ ...letterForm, signatory_title: e.target.value })}
-                      placeholder="e.g. Chairman / Registrar / Hon. Joint Secretary"
-                      required
-                    />
-                    <datalist id="signatory-titles-datalist">
-                      {Array.from(new Set(authorities.map(a => a.title).filter(Boolean))).map(title => (
-                        <option key={title} value={title} />
                       ))}
                     </datalist>
                   </div>
