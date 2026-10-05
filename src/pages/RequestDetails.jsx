@@ -1049,17 +1049,43 @@ export const RequestDetails = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {(request.items || []).map((it, idx) => (
-                          <tr key={idx}>
-                            <td style={{ fontWeight: 600 }}>{it.item_name}</td>
-                            <td>{it.quantity} {it.unit || 'Nos'}</td>
+                        {(request.items || []).length > 0 ? (
+                          (request.items || []).map((it, idx) => {
+                            const itemAmt = (it.estimated_unit_price && it.quantity)
+                              ? it.estimated_unit_price * it.quantity
+                              : (latestApproval?.approved_amount || latestApproval?.proposed_amount || selectedQuot?.total_amount || request.estimated_budget || 0);
+                            return (
+                              <tr key={idx}>
+                                <td style={{ fontWeight: 600 }}>{it.item_name}</td>
+                                <td>{it.quantity} {it.unit || 'Nos'}</td>
+                                <td>{selectedAgency?.name || 'Vendor'}</td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#166534' }}>
+                                  {formatCurrency(itemAmt)}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td style={{ fontWeight: 600 }}>{request.title}</td>
+                            <td>1 Lot</td>
                             <td>{selectedAgency?.name || 'Vendor'}</td>
-                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                              {formatCurrency(latestApproval?.approved_amount || request.estimated_budget)}
+                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#166534' }}>
+                              {formatCurrency(latestApproval?.approved_amount || latestApproval?.proposed_amount || selectedQuot?.total_amount || request.estimated_budget || 0)}
                             </td>
                           </tr>
-                        ))}
+                        )}
                       </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1' }}>
+                          <td colSpan={3} style={{ fontWeight: 700, textAlign: 'right', color: '#0f172a' }}>
+                            Total Sanctioned Amount:
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: 15, color: '#166534' }}>
+                            {formatCurrency(latestApproval?.approved_amount || latestApproval?.proposed_amount || selectedQuot?.total_amount || request.estimated_budget || 0)}
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
 
@@ -1406,7 +1432,7 @@ export const RequestDetails = () => {
                     >
                       <option value="">-- Choose Agency --</option>
                       {agencies.map(a => (
-                        <option key={a.id} value={a.id}>{a.name} ({a.contact_person})</option>
+                        <option key={a.id} value={a.id}>{a.name}</option>
                       ))}
                     </select>
                   </div>

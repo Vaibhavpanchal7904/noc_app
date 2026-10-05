@@ -99,29 +99,37 @@ export const generateApprovalLetterPdf = (request, letter, institute, agency, or
   doc.text(refText, 15, 90);
 
   // 6. Body Paragraph
-  const approvedApproval = request.approvals?.find(a => a.decision === 'Approved') || request.approvals?.[0];
-  const approvedAmt = approvedApproval?.approved_amount || approvedApproval?.proposed_amount || 0;
+  const approvedApproval = request.approvals?.find(a => a.decision === 'Approved') || request.approvals?.[request.approvals.length - 1];
+  const selectedQuot = request.quotations?.find(q => q.is_selected) || request.quotations?.[0];
+  const approvedAmt = approvedApproval?.approved_amount || approvedApproval?.proposed_amount || selectedQuot?.total_amount || request.estimated_budget || 0;
 
   const bodyPara = `With reference to the requirement submitted by your institute, we are pleased to inform you that the competent authority (${approvedApproval?.authority_id ? 'Authorized Authority' : 'Chairman / Registrar'}) has sanctioned the procurement / service work as detailed below with the approved agency:`;
   const splitBody = doc.splitTextToSize(bodyPara, pageWidth - 30);
   doc.text(splitBody, 15, 98);
 
   // 7. Summary Table
-  const tableData = (request.items || []).map((it, idx) => [
-    idx + 1,
-    it.item_name,
-    it.specifications || 'As per approved quotation',
-    it.quantity + ' ' + (it.unit || 'Nos'),
-    agency?.name || 'Selected Vendor',
-    formatCurrency(approvedAmt)
-  ]);
+  const tableData = (request.items || []).map((it, idx) => {
+    const itemAmt = (it.estimated_unit_price && it.quantity)
+      ? it.estimated_unit_price * it.quantity
+      : approvedAmt;
+    return [
+      idx + 1,
+      it.item_name,
+      it.specifications || 'As per approved quotation',
+      it.quantity + ' ' + (it.unit || 'Nos'),
+      agency?.name || 'Selected Vendor',
+      formatCurrency(itemAmt)
+    ];
+  });
 
   doc.autoTable({
     startY: 112,
     head: [['#', 'Item / Work Description', 'Specifications', 'Qty', 'Sanctioned Vendor', 'Approved Total']],
     body: tableData.length > 0 ? tableData : [[1, request.title, request.description || '-', '1 Lot', agency?.name || 'Vendor', formatCurrency(approvedAmt)]],
+    foot: [['', '', '', '', 'Total Sanctioned Amount', formatCurrency(approvedAmt)]],
     theme: 'grid',
     headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: 'bold' },
+    footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold' },
     styles: { fontSize: 8.5, cellPadding: 3 },
     margin: { left: 15, right: 15 }
   });
