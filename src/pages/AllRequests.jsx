@@ -11,7 +11,8 @@ import {
   X,
   FileText,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
@@ -20,8 +21,9 @@ import { formatCurrency, formatDate } from '../utils/pdfGenerator';
 import Papa from 'papaparse';
 
 export const AllRequests = () => {
-  const { requests, institutes, agencies, organizations, deleteRequest } = useData();
+  const { requests, institutes, agencies, organizations, deleteRequest, refetchData } = useData();
   const { permissions } = useAuth();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [requestToDelete, setRequestToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -127,6 +129,23 @@ export const AllRequests = () => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          <button 
+            className="btn btn-secondary" 
+            onClick={async () => {
+              setIsRefreshing(true);
+              try {
+                await refetchData(true);
+              } catch (_) {}
+              finally {
+                setIsRefreshing(false);
+              }
+            }}
+            disabled={isRefreshing}
+            title="Refresh & Sync with Cloud Database"
+          >
+            <RefreshCw size={15} className={isRefreshing ? 'spin-animation' : ''} />
+            <span>{isRefreshing ? 'Syncing...' : 'Sync Cloud'}</span>
+          </button>
           <button className="btn btn-secondary" onClick={handleExportCsv}>
             <Download size={16} /> Export to CSV
           </button>

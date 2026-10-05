@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { getActiveSupabaseUrl, getActiveSupabaseAnonKey, setRuntimeSupabaseConfig, testSupabaseConnection } from '../supabaseClient';
 
 export const SettingsPage = () => {
-  const { letterSettings, setLetterSettings, authorities, resetToFactoryData, syncStatus, lastSyncTime, syncError, isConfigured, syncLocalToCloud, migrationStatus, requests } = useData();
+  const { letterSettings, setLetterSettings, authorities, resetToFactoryData, syncStatus, lastSyncTime, syncError, isConfigured, syncLocalToCloud, migrationStatus, requests, refetchData } = useData();
   const [form, setForm] = useState(letterSettings);
   const [savedNotice, setSavedNotice] = useState(false);
 
@@ -63,11 +63,50 @@ export const SettingsPage = () => {
   };
 
   const SQL_MIGRATION_SNIPPET = `-- Run this in Supabase SQL Editor -> New Query
--- Full Migration File: supabase/migrations/20261005000001_complete_auth_rls_and_team.sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Ensure Realtime Publications
-ALTER PUBLICATION supabase_realtime ADD TABLE public.requests, public.request_items, public.quotations, public.quotation_items, public.approvals, public.approval_letters, public.work_records, public.bills, public.documents, public.institutes, public.agencies, public.approval_authorities, public.team_members, public.audit_logs;`;
+-- 1. Ensure Realtime Publications
+ALTER PUBLICATION supabase_realtime ADD TABLE public.requests, public.request_items, public.quotations, public.quotation_items, public.approvals, public.approval_letters, public.work_records, public.bills, public.documents, public.institutes, public.agencies, public.approval_authorities, public.team_members, public.audit_logs;
+
+-- 2. Allow Read/Write/Delete on all tables for all devices
+DO $$ 
+BEGIN
+    ALTER TABLE public.requests ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all requests" ON public.requests;
+    CREATE POLICY "Allow anon and auth all requests" ON public.requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.request_items ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all request_items" ON public.request_items;
+    CREATE POLICY "Allow anon and auth all request_items" ON public.request_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.quotations ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all quotations" ON public.quotations;
+    CREATE POLICY "Allow anon and auth all quotations" ON public.quotations FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.quotation_items ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all quotation_items" ON public.quotation_items;
+    CREATE POLICY "Allow anon and auth all quotation_items" ON public.quotation_items FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.approvals ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all approvals" ON public.approvals;
+    CREATE POLICY "Allow anon and auth all approvals" ON public.approvals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.approval_letters ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all approval_letters" ON public.approval_letters;
+    CREATE POLICY "Allow anon and auth all approval_letters" ON public.approval_letters FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.work_records ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all work_records" ON public.work_records;
+    CREATE POLICY "Allow anon and auth all work_records" ON public.work_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.bills ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all bills" ON public.bills;
+    CREATE POLICY "Allow anon and auth all bills" ON public.bills FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+    ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Allow anon and auth all documents" ON public.documents;
+    CREATE POLICY "Allow anon and auth all documents" ON public.documents FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+END $$;`;
 
   const copySqlToClipboard = () => {
     navigator.clipboard.writeText(SQL_MIGRATION_SNIPPET);
@@ -185,6 +224,23 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.requests, public.request_it
               >
                 <ArrowUpRight size={14} />
                 <span>{migrationStatus.migrating ? 'Uploading...' : `Migrate ${requests.length} Requests to Cloud`}</span>
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={async () => {
+                  try {
+                    await refetchData(true);
+                    alert('Cloud database re-synchronized and local state updated!');
+                  } catch (err) {
+                    alert('Sync error: ' + err.message);
+                  }
+                }}
+                disabled={!isConfigured}
+                style={{ borderColor: '#16a34a', color: '#16a34a' }}
+              >
+                <RefreshCw size={14} />
+                <span>Force Full Cloud Re-Sync</span>
               </button>
               {migrationStatus.message && (
                 <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>

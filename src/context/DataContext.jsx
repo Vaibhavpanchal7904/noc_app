@@ -614,12 +614,27 @@ export const DataProvider = ({ children }) => {
           } catch (_) {
             deletedIds = [];
           }
-          const deletedSet = new Set(deletedIds);
+
+          // Merge audit log tombstones from all connected devices
+          const cloudDeletedLogs = (auditRes.data || []).filter(l => l.action === 'DELETE_REQUEST');
+          const allDeletedKeys = new Set([
+            ...deletedIds,
+            ...cloudDeletedLogs.map(l => l.entity_id),
+            ...cloudDeletedLogs.map(l => l.changes?.request_no).filter(Boolean),
+            ...cloudDeletedLogs.map(l => l.changes?.id).filter(Boolean)
+          ]);
 
           const transformed = reqsRes.data
             .map(transformSupabaseRequest)
-            .filter(r => !deletedSet.has(r.id) && !deletedSet.has(r.request_no));
+            .filter(r => !allDeletedKeys.has(r.id) && !allDeletedKeys.has(r.request_no));
           setRequests(transformed);
+
+          // Proactively purge any stale records from Supabase that were deleted on another device
+          const staleInCloud = reqsRes.data.filter(r => allDeletedKeys.has(r.id) || allDeletedKeys.has(r.request_no));
+          if (staleInCloud.length > 0) {
+            const staleIds = staleInCloud.map(r => r.id);
+            activeClient.from('requests').delete().in('id', staleIds).then(() => {}).catch(() => {});
+          }
         }
         if (docsRes.data) {
           setDocuments(docsRes.data);
