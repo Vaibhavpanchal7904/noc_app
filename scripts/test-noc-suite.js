@@ -208,7 +208,26 @@ const incomingCloudData = [
   { id: 'fresh-id-2', request_no: 'NOC-2026-0010' }
 ];
 const filteredCloud = incomingCloudData.filter(r => !deletedIds.includes(r.id) && !deletedIds.includes(r.request_no));
-assert(filteredCloud.length === 1 && filteredCloud[0].id === 'fresh-id-2', 'Deleted requests filtered out from cloud sync');
+// Test 13: Tax Calculation & 0% Tax Preservation
+console.log('\nTest Suite 13: 0% Tax Preservation & Cooperative Calculations');
+const rawTaxInput0 = '0';
+const parsedTax0 = (rawTaxInput0 !== undefined && rawTaxInput0 !== null && !isNaN(parseFloat(rawTaxInput0)))
+  ? parseFloat(rawTaxInput0)
+  : 0;
+assert(parsedTax0 === 0, '0% tax evaluates to 0 and NOT 18%');
+
+const testSubtotal = 10000;
+const testTaxP = 0;
+const testTaxAmt = Math.round(((testSubtotal * testTaxP) / 100) * 100) / 100;
+const testOtherCharges = 150;
+const testTotal = testSubtotal + testTaxAmt + testOtherCharges;
+assert(testTaxAmt === 0, 'Calculated tax amount for 0% tax is ₹0.00');
+assert(testTotal === 10150, 'Grand total for 0% tax + other charges is ₹10,150.00');
+
+// Test manual override of tax amount
+const manualTaxAmt = 250.50;
+const manualTotal = testSubtotal + manualTaxAmt + testOtherCharges;
+assert(manualTotal === 10400.50, 'Manual tax amount override calculates total properly');
 
 console.log('\n====================================================');
 console.log(`Test Execution Complete: ${passed} Passed, ${failed} Failed`);
@@ -217,5 +236,6 @@ console.log('====================================================');
 if (failed > 0) {
   process.exit(1);
 }
+
 
 

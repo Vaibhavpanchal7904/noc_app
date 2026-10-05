@@ -198,15 +198,20 @@ export const RequestDetails = () => {
 
   // Handlers
   const handleOpenAddQuotation = () => {
+    const defaultSub = request.estimated_budget ? String(request.estimated_budget) : '';
+    const sub = parseFloat(defaultSub) || 0;
+    const defaultTaxP = '18';
+    const taxA = Math.round(((sub * 18) / 100) * 100) / 100;
+    const tot = sub ? String(sub + taxA) : '';
     setQuotForm({
       agency_id: agencies[0]?.id || '',
       quotation_no: '',
       quotation_date: new Date().toISOString().split('T')[0],
-      subtotal_amount: request.estimated_budget ? String(request.estimated_budget) : '',
-      tax_percent: '18.00',
-      tax_amount: '',
+      subtotal_amount: defaultSub,
+      tax_percent: defaultTaxP,
+      tax_amount: sub ? String(taxA) : '0.00',
       other_charges: '0.00',
-      total_amount: '',
+      total_amount: tot,
       validity_date: '',
       delivery_timeline: '15 Days',
       remarks: ''
@@ -219,12 +224,59 @@ export const RequestDetails = () => {
     const taxP = parseFloat(quotForm.tax_percent) || 0;
     const taxA = Math.round(((sub * taxP) / 100) * 100) / 100;
     const oth = parseFloat(quotForm.other_charges) || 0;
-    const tot = sub + taxA + oth;
+    const tot = Math.round((sub + taxA + oth) * 100) / 100;
     setQuotForm(prev => ({
       ...prev,
       subtotal_amount: val,
       tax_amount: String(taxA),
       total_amount: String(tot)
+    }));
+  };
+
+  const handleQuotTaxPercentChange = (taxP) => {
+    const sub = parseFloat(quotForm.subtotal_amount) || 0;
+    const p = parseFloat(taxP) || 0;
+    const taxA = Math.round(((sub * p) / 100) * 100) / 100;
+    const oth = parseFloat(quotForm.other_charges) || 0;
+    const tot = Math.round((sub + taxA + oth) * 100) / 100;
+    setQuotForm(prev => ({
+      ...prev,
+      tax_percent: taxP,
+      tax_amount: String(taxA),
+      total_amount: String(tot)
+    }));
+  };
+
+  const handleQuotTaxAmountChange = (taxA) => {
+    const sub = parseFloat(quotForm.subtotal_amount) || 0;
+    const tAmt = parseFloat(taxA) || 0;
+    const oth = parseFloat(quotForm.other_charges) || 0;
+    const tot = Math.round((sub + tAmt + oth) * 100) / 100;
+    const calcPercent = sub > 0 ? ((tAmt / sub) * 100).toFixed(2) : quotForm.tax_percent;
+    setQuotForm(prev => ({
+      ...prev,
+      tax_amount: taxA,
+      tax_percent: calcPercent,
+      total_amount: String(tot)
+    }));
+  };
+
+  const handleQuotOtherChargesChange = (othVal) => {
+    const sub = parseFloat(quotForm.subtotal_amount) || 0;
+    const taxA = parseFloat(quotForm.tax_amount) || 0;
+    const oth = parseFloat(othVal) || 0;
+    const tot = Math.round((sub + taxA + oth) * 100) / 100;
+    setQuotForm(prev => ({
+      ...prev,
+      other_charges: othVal,
+      total_amount: String(tot)
+    }));
+  };
+
+  const handleQuotTotalAmountChange = (totVal) => {
+    setQuotForm(prev => ({
+      ...prev,
+      total_amount: totVal
     }));
   };
 
@@ -1397,73 +1449,106 @@ export const RequestDetails = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Tax / GST %</label>
-                    <select
-                      className="form-control"
-                      value={quotForm.tax_percent}
-                      onChange={e => {
-                        const taxP = e.target.value;
-                        const sub = parseFloat(quotForm.subtotal_amount) || 0;
-                        const taxA = Math.round(((sub * parseFloat(taxP)) / 100) * 100) / 100;
-                        const oth = parseFloat(quotForm.other_charges) || 0;
-                        setQuotForm({
-                          ...quotForm,
-                          tax_percent: taxP,
-                          tax_amount: String(taxA),
-                          total_amount: String(sub + taxA + oth)
-                        });
-                      }}
-                    >
-                      <option value="0">0% (Nil / Exempted)</option>
-                      <option value="5">5% GST</option>
-                      <option value="12">12% GST</option>
-                      <option value="18">18% GST (Standard)</option>
-                      <option value="28">28% GST</option>
-                    </select>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label className="form-label" style={{ margin: 0 }}>Tax / GST %</label>
+                      <div style={{ display: 'flex', gap: 3 }}>
+                        {['0', '5', '12', '18', '28'].map(preset => {
+                          const isSelected = String(parseFloat(quotForm.tax_percent)) === preset;
+                          return (
+                            <button
+                              key={preset}
+                              type="button"
+                              className={`btn ${isSelected ? 'btn-primary' : 'btn-outline'}`}
+                              style={{
+                                padding: '1px 6px',
+                                fontSize: 10.5,
+                                height: 20,
+                                lineHeight: '18px',
+                                borderRadius: 4,
+                                background: isSelected ? 'var(--color-primary)' : '#f1f5f9',
+                                color: isSelected ? '#ffffff' : '#334155',
+                                border: isSelected ? '1px solid var(--color-primary)' : '1px solid #cbd5e1'
+                              }}
+                              onClick={() => handleQuotTaxPercentChange(preset)}
+                            >
+                              {preset}%
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="form-control"
+                        placeholder="Tax % (e.g. 0, 5, 18)"
+                        value={quotForm.tax_percent}
+                        onChange={e => handleQuotTaxPercentChange(e.target.value)}
+                      />
+                      <select
+                        className="form-control"
+                        style={{ width: '135px', fontSize: 12 }}
+                        value={['0', '5', '12', '18', '28'].includes(String(parseFloat(quotForm.tax_percent))) ? String(parseFloat(quotForm.tax_percent)) : 'custom'}
+                        onChange={e => {
+                          if (e.target.value !== 'custom') {
+                            handleQuotTaxPercentChange(e.target.value);
+                          }
+                        }}
+                      >
+                        <option value="0">0% (Nil / Exempt)</option>
+                        <option value="5">5% GST</option>
+                        <option value="12">12% GST</option>
+                        <option value="18">18% GST</option>
+                        <option value="28">28% GST</option>
+                        <option value="custom">Custom %</option>
+                      </select>
+                    </div>
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Calculated Tax Amount (INR)</label>
+                    <label className="form-label">
+                      Tax Amount (INR) <span style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>(Auto/Manual)</span>
+                    </label>
                     <input
                       type="number"
                       step="0.01"
                       className="form-control"
+                      placeholder="0.00"
                       value={quotForm.tax_amount}
-                      readOnly
+                      onChange={e => handleQuotTaxAmountChange(e.target.value)}
                     />
                   </div>
                 </div>
 
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label">Other / Freight Charges (INR)</label>
+                    <label className="form-label">
+                      Other / Freight Charges (INR) <span style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>(Manual)</span>
+                    </label>
                     <input
                       type="number"
                       step="0.01"
                       className="form-control"
+                      placeholder="0.00"
                       value={quotForm.other_charges}
-                      onChange={e => {
-                        const oth = parseFloat(e.target.value) || 0;
-                        const sub = parseFloat(quotForm.subtotal_amount) || 0;
-                        const taxA = parseFloat(quotForm.tax_amount) || 0;
-                        setQuotForm({
-                          ...quotForm,
-                          other_charges: e.target.value,
-                          total_amount: String(sub + taxA + oth)
-                        });
-                      }}
+                      onChange={e => handleQuotOtherChargesChange(e.target.value)}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Total Quoted Amount (INR) <span className="required">*</span></label>
+                    <label className="form-label">
+                      Total Quoted Amount (INR) <span className="required">*</span>
+                    </label>
                     <input
                       type="number"
                       step="0.01"
                       className="form-control"
                       style={{ fontWeight: 700, color: '#166534', fontFamily: 'var(--font-mono)' }}
+                      placeholder="Total amount"
                       value={quotForm.total_amount}
-                      onChange={e => setQuotForm({ ...quotForm, total_amount: e.target.value })}
+                      onChange={e => handleQuotTotalAmountChange(e.target.value)}
                       required
                     />
                   </div>
@@ -1473,7 +1558,7 @@ export const RequestDetails = () => {
                     <input
                       type="text"
                       className="form-control"
-                      placeholder="e.g. 7-10 Days"
+                      placeholder="e.g. 15 Days / Immediate"
                       value={quotForm.delivery_timeline}
                       onChange={e => setQuotForm({ ...quotForm, delivery_timeline: e.target.value })}
                     />

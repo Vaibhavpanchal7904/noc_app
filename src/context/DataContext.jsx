@@ -306,7 +306,9 @@ export const DataProvider = ({ children }) => {
         quotation_no: q.quotation_no || '',
         quotation_date: q.quotation_date || '',
         subtotal_amount: parseFloat(q.subtotal_amount) || 0,
-        tax_percent: parseFloat(q.tax_percent) || 18,
+        tax_percent: (q.tax_percent !== undefined && q.tax_percent !== null && !isNaN(parseFloat(q.tax_percent)))
+          ? parseFloat(q.tax_percent)
+          : 0,
         tax_amount: parseFloat(q.tax_amount) || 0,
         other_charges: parseFloat(q.other_charges) || 0,
         total_amount: parseFloat(q.total_amount) || 0,
@@ -324,7 +326,9 @@ export const DataProvider = ({ children }) => {
           item_name: qi.item_name,
           quantity: parseInt(qi.quantity) || 1,
           unit_price: parseFloat(qi.unit_price) || 0,
-          tax_percent: parseFloat(qi.tax_percent) || 18,
+          tax_percent: (qi.tax_percent !== undefined && qi.tax_percent !== null && !isNaN(parseFloat(qi.tax_percent)))
+            ? parseFloat(qi.tax_percent)
+            : 0,
           total_price: parseFloat(qi.total_price) || 0
         }))
       })),
@@ -910,13 +914,17 @@ export const DataProvider = ({ children }) => {
   const addQuotation = async (reqId, quotationData) => {
     const quotId = generateUUID();
     const subtotal = parseFloat(quotationData.subtotal_amount) || 0;
-    const taxPercent = parseFloat(quotationData.tax_percent) || 18;
-    const taxAmt = quotationData.tax_amount !== undefined 
-      ? parseFloat(quotationData.tax_amount) 
+    const taxPercent = (quotationData.tax_percent !== undefined && quotationData.tax_percent !== null && quotationData.tax_percent !== '' && !isNaN(parseFloat(quotationData.tax_percent)))
+      ? parseFloat(quotationData.tax_percent)
+      : 0;
+    const taxAmt = (quotationData.tax_amount !== undefined && quotationData.tax_amount !== null && quotationData.tax_amount !== '' && !isNaN(parseFloat(quotationData.tax_amount)))
+      ? parseFloat(quotationData.tax_amount)
       : Math.round(((subtotal * taxPercent) / 100) * 100) / 100;
-    const otherCharges = parseFloat(quotationData.other_charges) || 0;
-    const totalAmt = quotationData.total_amount 
-      ? parseFloat(quotationData.total_amount) 
+    const otherCharges = (quotationData.other_charges !== undefined && quotationData.other_charges !== null && quotationData.other_charges !== '' && !isNaN(parseFloat(quotationData.other_charges)))
+      ? parseFloat(quotationData.other_charges)
+      : 0;
+    const totalAmt = (quotationData.total_amount !== undefined && quotationData.total_amount !== null && quotationData.total_amount !== '' && !isNaN(parseFloat(quotationData.total_amount)))
+      ? parseFloat(quotationData.total_amount)
       : (subtotal + taxAmt + otherCharges);
 
     const agencyUuid = resolveAgencyUuid(quotationData.agency_id);
