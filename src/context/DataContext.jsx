@@ -67,7 +67,15 @@ export const DataProvider = ({ children }) => {
 
   const [institutes, setInstitutes] = useState(() => {
     const saved = localStorage.getItem('noc_institutes');
-    return saved ? JSON.parse(saved) : INITIAL_INSTITUTES;
+    if (!saved) return INITIAL_INSTITUTES;
+    try {
+      const parsed = JSON.parse(saved);
+      const existingIds = new Set(parsed.map(i => i.id || i.code));
+      const missing = INITIAL_INSTITUTES.filter(i => !existingIds.has(i.id) && !existingIds.has(i.code));
+      return missing.length > 0 ? [...parsed, ...missing] : parsed;
+    } catch {
+      return INITIAL_INSTITUTES;
+    }
   });
 
   const [agencies, setAgencies] = useState(() => {

@@ -68,7 +68,8 @@ export const INITIAL_INSTITUTES = [
   { id: 'inst-45', org_id: 'org-cvmu', name: 'CVM College of Fine Arts', code: 'CVM_FINEARTS', is_active: true },
   { id: 'inst-46', org_id: 'org-cvmu', name: 'C L Patel Institute of Studies And Research In Renewable Energy (ISRRE)', code: 'ISRRE', is_active: true },
   { id: 'inst-47', org_id: 'org-cvmu', name: 'H. M. Patel English Studies Centre', code: 'HMP_ENG_STUDIES', is_active: true },
-  { id: 'inst-48', org_id: 'org-cvmu', name: 'H.M. Patel Career Development Centre (CDC)', code: 'HMP_CDC', is_active: true }
+  { id: 'inst-48', org_id: 'org-cvmu', name: 'H.M. Patel Career Development Centre (CDC)', code: 'HMP_CDC', is_active: true },
+  { id: 'inst-49', org_id: 'org-cvmu', name: 'CVMU (CVM University)', code: 'CVMU', is_active: true }
 ];
 
 export const INITIAL_AGENCIES = [

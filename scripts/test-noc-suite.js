@@ -37,16 +37,18 @@ assert(INITIAL_ORGANIZATIONS.length === 2, 'Two organizations configured (CVM an
 const cvmInsts = INITIAL_INSTITUTES.filter(i => i.org_id === 'org-cvm');
 const cvmuInsts = INITIAL_INSTITUTES.filter(i => i.org_id === 'org-cvmu');
 assert(cvmInsts.length === 27, `27 CVM institutes configured (found ${cvmInsts.length})`);
-assert(cvmuInsts.length === 21, `21 CVMU institutes configured (found ${cvmuInsts.length})`);
-assert(INITIAL_INSTITUTES.length === 48, 'Total 48 institutes in master database');
+assert(cvmuInsts.length === 22, `22 CVMU institutes configured (found ${cvmuInsts.length})`);
+assert(INITIAL_INSTITUTES.length === 49, 'Total 49 institutes in master database');
 
 // Check critical specific colleges
 const bvm = INITIAL_INSTITUTES.find(i => i.name.includes('Birla Vishwakarma Mahavidyalaya'));
 const gcet = INITIAL_INSTITUTES.find(i => i.name.includes('G.H. Patel College of Engineering and Technology'));
 const arPharmacy = INITIAL_INSTITUTES.find(i => i.name.includes('A.R. College of Pharmacy'));
+const cvmuCollege = INITIAL_INSTITUTES.find(i => i.code === 'CVMU');
 assert(Boolean(bvm && bvm.org_id === 'org-cvm'), 'BVM exists under CVM');
 assert(Boolean(gcet && gcet.org_id === 'org-cvmu'), 'GCET exists under CVMU');
 assert(Boolean(arPharmacy && arPharmacy.org_id === 'org-cvm'), 'A.R. Pharmacy exists under CVM');
+assert(Boolean(cvmuCollege && cvmuCollege.org_id === 'org-cvmu'), 'CVMU exists as college under CVMU');
 
 // Test 2: Agencies Master Data
 console.log('\nTest Suite 2: Agencies Master Data (Section 5)');
