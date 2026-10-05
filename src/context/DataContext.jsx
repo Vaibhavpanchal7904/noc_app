@@ -44,10 +44,10 @@ export const isUUID = (str) => {
 export const DataProvider = ({ children }) => {
   const { currentUser } = useAuth();
   const broadcastChannelRef = useRef(null);
-  const isFetchingRef = useRef(false);
+  const inFlightSyncPromiseRef = useRef(null);
+  const masterDataLoadedRef = useRef(false);
+  const realtimeDebounceTimerRef = useRef(null);
   const isMigratingRef = useRef(false);
-  const hasAutoMigratedRef = useRef(false);
-  const realtimeDebounceRef = useRef(null);
 
   // Client references that can dynamically update
   const [activeClient, setActiveClient] = useState(() => initialSupabase);
@@ -403,7 +403,7 @@ export const DataProvider = ({ children }) => {
     }
 
     isMigratingRef.current = true;
-    setMigrationStatus({ migrating: true, message: 'Analyzing local and cloud records...' });
+    setMigrationStatus({ migrating: true, message: 'Checking cloud database records...' });
     let migratedCount = 0;
     let skippedCount = 0;
     const errors = [];
@@ -436,68 +436,70 @@ export const DataProvider = ({ children }) => {
       }
 
       for (const req of localList) {
-        if (req && req.request_no && !existingNos.has(req.request_no)) {
-          // Unmigrated request (e.g. created on laptop in local mode)
-          const targetReqId = isUUID(req.id) ? req.id : generateUUID();
-
-          // Resolve foreign key UUIDs
-          let matchedOrgUuid = CVM_ORG_UUID;
-          if (req.org_id === 'org-cvmu' || req.org_id === 'CVMU') {
-            matchedOrgUuid = dbOrgs.find(o => o.code === 'CVMU')?.id || CVMU_ORG_UUID;
-          } else {
-            matchedOrgUuid = dbOrgs.find(o => o.code === 'CVM')?.id || CVM_ORG_UUID;
-          }
-
-          let matchedInstUuid = null;
-          if (isUUID(req.institute_id)) {
-            matchedInstUuid = req.institute_id;
-          } else {
-            const instMatch = dbInsts.find(i => i.id === req.institute_id || i.code === req.institute_id || i.name === req.institute_id);
-            matchedInstUuid = instMatch?.id || dbInsts[0]?.id || null;
-          }
-
-          const { error: insErr } = await activeClient.from('requests').insert({
-            id: targetReqId,
-            request_no: req.request_no,
-            org_id: matchedOrgUuid,
-            institute_id: matchedInstUuid,
-            request_date: req.request_date || new Date().toISOString().split('T')[0],
-            clg_out_no: req.clg_out_no || null,
-            clg_in_no: req.clg_in_no || null,
-            request_type: req.request_type || 'New Purchase',
-            title: req.title,
-            description: req.description || null,
-            estimated_budget: req.estimated_budget !== null ? parseFloat(req.estimated_budget) : null,
-            current_stage: req.current_stage || 'requirement',
-            overall_status: req.overall_status || 'Pending Quotations',
-            internal_notes: req.internal_notes || null,
-            is_historical: Boolean(req.is_historical),
-            historical_notes: req.historical_notes || null,
-            created_at: req.created_at || new Date().toISOString()
-          });
-
-          if (insErr) {
-            console.warn(`Error migrating request ${req.request_no}:`, insErr.message);
-            errors.push(`${req.request_no}: ${insErr.message}`);
-          } else {
-            migratedCount++;
-            // Migrate items
-            if (req.items && req.items.length > 0) {
-              const itemPayloads = req.items.map(it => ({
-                id: isUUID(it.id) ? it.id : generateUUID(),
-                request_id: targetReqId,
-                item_name: it.item_name,
-                category: it.category || 'General',
-                quantity: parseInt(it.quantity) || 1,
-                unit: it.unit || 'Nos',
-                specifications: it.specifications || null,
-                estimated_unit_price: it.estimated_unit_price ? parseFloat(it.estimated_unit_price) : null
-              }));
-              await activeClient.from('request_items').insert(itemPayloads);
-            }
-          }
-        } else {
+        if (!req || !req.request_no) continue;
+        if (existingNos.has(req.request_no)) {
           skippedCount++;
+          continue;
+        }
+
+        // Unmigrated request (e.g. created on laptop in local mode)
+        const targetReqId = isUUID(req.id) ? req.id : generateUUID();
+
+        // Resolve foreign key UUIDs
+        let matchedOrgUuid = CVM_ORG_UUID;
+        if (req.org_id === 'org-cvmu' || req.org_id === 'CVMU') {
+          matchedOrgUuid = dbOrgs.find(o => o.code === 'CVMU')?.id || CVMU_ORG_UUID;
+        } else {
+          matchedOrgUuid = dbOrgs.find(o => o.code === 'CVM')?.id || CVM_ORG_UUID;
+        }
+
+        let matchedInstUuid = null;
+        if (isUUID(req.institute_id)) {
+          matchedInstUuid = req.institute_id;
+        } else {
+          const instMatch = dbInsts.find(i => i.id === req.institute_id || i.code === req.institute_id || i.name === req.institute_id);
+          matchedInstUuid = instMatch?.id || dbInsts[0]?.id || null;
+        }
+
+        const { error: insErr } = await activeClient.from('requests').insert({
+          id: targetReqId,
+          request_no: req.request_no,
+          org_id: matchedOrgUuid,
+          institute_id: matchedInstUuid,
+          request_date: req.request_date || new Date().toISOString().split('T')[0],
+          clg_out_no: req.clg_out_no || null,
+          clg_in_no: req.clg_in_no || null,
+          request_type: req.request_type || 'New Purchase',
+          title: req.title,
+          description: req.description || null,
+          estimated_budget: req.estimated_budget !== null ? parseFloat(req.estimated_budget) : null,
+          current_stage: req.current_stage || 'requirement',
+          overall_status: req.overall_status || 'Pending Quotations',
+          internal_notes: req.internal_notes || null,
+          is_historical: Boolean(req.is_historical),
+          historical_notes: req.historical_notes || null,
+          created_at: req.created_at || new Date().toISOString()
+        });
+
+        if (insErr) {
+          console.warn(`Error migrating request ${req.request_no}:`, insErr.message);
+          errors.push(`${req.request_no}: ${insErr.message}`);
+        } else {
+          migratedCount++;
+          // Migrate items
+          if (req.items && req.items.length > 0) {
+            const itemPayloads = req.items.map(it => ({
+              id: isUUID(it.id) ? it.id : generateUUID(),
+              request_id: targetReqId,
+              item_name: it.item_name,
+              category: it.category || 'General',
+              quantity: parseInt(it.quantity) || 1,
+              unit: it.unit || 'Nos',
+              specifications: it.specifications || null,
+              estimated_unit_price: it.estimated_unit_price ? parseFloat(it.estimated_unit_price) : null
+            }));
+            await activeClient.from('request_items').insert(itemPayloads);
+          }
         }
       }
 
@@ -508,7 +510,7 @@ export const DataProvider = ({ children }) => {
 
       return { ok: true, migratedCount, skippedCount, errors };
     } catch (err) {
-      console.warn('Migration status:', err.message);
+      console.warn('Migration notice:', err.message);
       setMigrationStatus({ migrating: false, message: `Migration notice: ${err.message}` });
       return { ok: false, message: err.message };
     } finally {
@@ -516,125 +518,120 @@ export const DataProvider = ({ children }) => {
     }
   }, [activeClient]);
 
-  // Fetch Entire Cloud Data from Supabase with Concurrency Lock
-  const fetchCloudData = useCallback(async (force = false) => {
-    if (!activeClient) {
-      setSyncStatus('local');
-      return;
-    }
-    if (isFetchingRef.current && !force) {
-      return;
-    }
-
-    isFetchingRef.current = true;
-    setSyncStatus('syncing');
-
+  // Master Data Fetcher (Runs once on startup or when master tables change)
+  const fetchMasterData = useCallback(async () => {
+    if (!activeClient) return;
     try {
-      // Fetch Master Tables in Parallel
-      const [
-        orgsRes,
-        instsRes,
-        agenciesRes,
-        authsRes,
-        teamRes,
-        stockRes,
-        docsRes,
-        auditRes,
-        reqsRes
-      ] = await Promise.all([
+      const [orgsRes, instsRes, agenciesRes, authsRes, teamRes, stockRes] = await Promise.all([
         activeClient.from('organizations').select('*').order('code'),
         activeClient.from('institutes').select('*').order('name'),
         activeClient.from('agencies').select('*').order('name'),
         activeClient.from('approval_authorities').select('*').order('sort_order'),
         activeClient.from('team_members').select('*').order('created_at'),
-        activeClient.from('historical_stock_notes').select('*'),
-        activeClient.from('documents').select('*').order('created_at', { ascending: false }),
-        activeClient.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
-        activeClient.from('requests').select(`
-          *,
-          items:request_items(*),
-          quotations(*, quotation_items(*)),
-          approvals(*),
-          approval_letters(*),
-          work_records(*, history:work_status_history(*)),
-          bills(*)
-        `).order('created_at', { ascending: false })
+        activeClient.from('historical_stock_notes').select('*')
       ]);
 
-      if (reqsRes.error) {
-        throw new Error(`Requests query failed: ${reqsRes.error.message} (Code: ${reqsRes.error.code || 'UNKNOWN'}). Verify database permissions.`);
-      }
-
-      if (orgsRes.data && orgsRes.data.length > 0) {
-        setOrganizations(orgsRes.data);
-      }
-      if (instsRes.data && instsRes.data.length > 0) {
-        setInstitutes(instsRes.data);
-      }
-      if (agenciesRes.data && agenciesRes.data.length > 0) {
-        setAgencies(agenciesRes.data);
-      }
-      if (authsRes.data && authsRes.data.length > 0) {
-        setAuthorities(authsRes.data);
-      }
-      if (teamRes.data && teamRes.data.length > 0) {
-        setTeamMembers(teamRes.data);
-      }
-      if (stockRes.data && stockRes.data.length > 0) {
-        setStockNotes(stockRes.data);
-      }
-      if (docsRes.data) {
-        setDocuments(docsRes.data);
-      }
-      if (auditRes.data && auditRes.data.length > 0) {
-        setAuditLogs(auditRes.data);
-      }
-
-      // Handle Requests
-      if (reqsRes.data && reqsRes.data.length > 0) {
-        const transformed = reqsRes.data.map(transformSupabaseRequest);
-        setRequests(transformed);
-      }
-
-      setSyncStatus('synced');
-      setSyncError(null);
-      setLastSyncTime(new Date().toISOString());
-
-      // Safe One-Time Initial Auto-Migration
-      if (!hasAutoMigratedRef.current) {
-        hasAutoMigratedRef.current = true;
-        const savedRaw = localStorage.getItem('noc_requests');
-        if (savedRaw) {
-          try {
-            const localList = JSON.parse(savedRaw);
-            if (Array.isArray(localList) && localList.length > 0) {
-              syncLocalToCloud();
-            }
-          } catch (_) {
-            // ignore
-          }
-        }
-      }
+      if (orgsRes.data?.length) setOrganizations(orgsRes.data);
+      if (instsRes.data?.length) setInstitutes(instsRes.data);
+      if (agenciesRes.data?.length) setAgencies(agenciesRes.data);
+      if (authsRes.data?.length) setAuthorities(authsRes.data);
+      if (teamRes.data?.length) setTeamMembers(teamRes.data);
+      if (stockRes.data?.length) setStockNotes(stockRes.data);
+      masterDataLoadedRef.current = true;
     } catch (err) {
-      console.warn('Supabase cloud fetch notice:', err.message);
-      setSyncStatus('error');
-      const isNetworkFail = err.name === 'TypeError' || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
-      const userFriendlyMsg = isNetworkFail
-        ? 'Unable to reach Supabase database. Verify network connection or project settings.'
-        : err.message;
-      setSyncError(userFriendlyMsg);
-    } finally {
-      isFetchingRef.current = false;
+      console.warn('Master data fetch notice:', err.message);
     }
-  }, [activeClient, transformSupabaseRequest, syncLocalToCloud]);
+  }, [activeClient]);
 
-  // Debounced Realtime Trigger
+  // Single-Flight Operational Data Fetcher (Requests, Documents, Audit Logs)
+  const fetchCloudData = useCallback(async (force = false) => {
+    if (!activeClient) {
+      setSyncStatus('local');
+      return;
+    }
+
+    // Reuse in-flight query promise if already running
+    if (inFlightSyncPromiseRef.current && !force) {
+      return inFlightSyncPromiseRef.current;
+    }
+
+    setSyncStatus('syncing');
+
+    const syncPromise = (async () => {
+      try {
+        // Load master data if not loaded yet
+        if (!masterDataLoadedRef.current) {
+          await fetchMasterData();
+        }
+
+        // Fetch operational tables
+        const [reqsRes, docsRes, auditRes] = await Promise.all([
+          activeClient.from('requests').select(`
+            *,
+            items:request_items(*),
+            quotations(*, quotation_items(*)),
+            approvals(*),
+            approval_letters(*),
+            work_records(*, history:work_status_history(*)),
+            bills(*)
+          `).order('created_at', { ascending: false }),
+          activeClient.from('documents').select('*').order('created_at', { ascending: false }).limit(50),
+          activeClient.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(50)
+        ]);
+
+        if (reqsRes.error) {
+          throw new Error(`Requests query error: ${reqsRes.error.message}`);
+        }
+
+        if (reqsRes.data) {
+          const transformed = reqsRes.data.map(transformSupabaseRequest);
+          setRequests(transformed);
+        }
+        if (docsRes.data) {
+          setDocuments(docsRes.data);
+        }
+        if (auditRes.data) {
+          setAuditLogs(auditRes.data);
+        }
+
+        setSyncStatus('synced');
+        setSyncError(null);
+        setLastSyncTime(new Date().toISOString());
+      } catch (err) {
+        console.warn('Supabase cloud fetch notice:', err.message);
+        setSyncStatus('error');
+        const isNetworkFail = err.name === 'TypeError' ||
+          err.message?.includes('Failed to fetch') ||
+          err.message?.includes('ERR_INSUFFICIENT_RESOURCES') ||
+          err.message?.includes('NetworkError');
+        const userFriendlyMsg = isNetworkFail
+          ? 'Unable to reach Supabase database. Please check connection or project status in Settings.'
+          : err.message;
+        setSyncError(userFriendlyMsg);
+      } finally {
+        inFlightSyncPromiseRef.current = null;
+      }
+    })();
+
+    inFlightSyncPromiseRef.current = syncPromise;
+    return syncPromise;
+  }, [activeClient, fetchMasterData, transformSupabaseRequest]);
+
+  // Debounced Realtime Trigger (2000ms trailing window to prevent request floods)
   const onRealtimeUpdate = useCallback(() => {
-    if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
-    realtimeDebounceRef.current = setTimeout(() => {
+    if (realtimeDebounceTimerRef.current) clearTimeout(realtimeDebounceTimerRef.current);
+    realtimeDebounceTimerRef.current = setTimeout(() => {
       fetchCloudData(true);
-    }, 1200);
+    }, 2000);
   }, [fetchCloudData]);
+
+  // Master Data Realtime Trigger
+  const onMasterDataUpdate = useCallback(() => {
+    if (realtimeDebounceTimerRef.current) clearTimeout(realtimeDebounceTimerRef.current);
+    realtimeDebounceTimerRef.current = setTimeout(() => {
+      fetchMasterData();
+    }, 2000);
+  }, [fetchMasterData]);
 
   // Initialize Real-time Cloud Connection and Event Subscriptions
   useEffect(() => {
@@ -645,7 +642,7 @@ export const DataProvider = ({ children }) => {
 
     fetchCloudData(true);
 
-    // Subscribe to all changes on public schema tables
+    // Subscribe to changes on public schema tables
     const channel = activeClient
       .channel('noc-global-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, onRealtimeUpdate)
@@ -656,10 +653,11 @@ export const DataProvider = ({ children }) => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'work_records' }, onRealtimeUpdate)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, onRealtimeUpdate)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, onRealtimeUpdate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'institutes' }, onRealtimeUpdate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'agencies' }, onRealtimeUpdate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_authorities' }, onRealtimeUpdate)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audit_logs' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'institutes' }, onMasterDataUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'agencies' }, onMasterDataUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_authorities' }, onMasterDataUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, onMasterDataUpdate)
       .subscribe();
 
     // Refetch on Window Focus & Network Reconnect
@@ -670,12 +668,12 @@ export const DataProvider = ({ children }) => {
     window.addEventListener('online', onOnline);
 
     return () => {
-      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+      if (realtimeDebounceTimerRef.current) clearTimeout(realtimeDebounceTimerRef.current);
       activeClient.removeChannel(channel);
       window.removeEventListener('focus', onWindowFocus);
       window.removeEventListener('online', onOnline);
     };
-  }, [activeClient, fetchCloudData, onRealtimeUpdate]);
+  }, [activeClient, fetchCloudData, onRealtimeUpdate, onMasterDataUpdate]);
 
   // Helper to generate Next Request Number e.g. NOC-2026-0002
   const getNextRequestNo = () => {
