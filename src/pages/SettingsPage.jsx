@@ -63,12 +63,11 @@ export const SettingsPage = () => {
   };
 
   const SQL_MIGRATION_SNIPPET = `-- Run this in Supabase SQL Editor -> New Query
-ALTER PUBLICATION supabase_realtime ADD TABLE public.requests, public.request_items, public.quotations, public.approvals, public.approval_letters, public.work_records, public.bills, public.documents, public.institutes, public.agencies, public.approval_authorities, public.audit_logs;
+-- Full Migration File: supabase/migrations/20261005000001_complete_auth_rls_and_team.sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-DO $$ BEGIN
-  CREATE POLICY "Allow anon and auth write requests" ON public.requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-  CREATE POLICY "Allow anon and auth read requests" ON public.requests FOR SELECT TO anon, authenticated USING (true);
-EXCEPTION WHEN others THEN NULL; END $$;`;
+-- Ensure Realtime Publications
+ALTER PUBLICATION supabase_realtime ADD TABLE public.requests, public.request_items, public.quotations, public.quotation_items, public.approvals, public.approval_letters, public.work_records, public.bills, public.documents, public.institutes, public.agencies, public.approval_authorities, public.team_members, public.audit_logs;`;
 
   const copySqlToClipboard = () => {
     navigator.clipboard.writeText(SQL_MIGRATION_SNIPPET);

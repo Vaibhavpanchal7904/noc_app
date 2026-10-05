@@ -4,11 +4,18 @@
 
 import { createClient } from '@supabase/supabase-js';
 
+export const DEFAULT_SUPABASE_URL = 'https://arwqafuudyvvqqiktvop.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_tJ73CcH6LZbIouXSCfrxPw_63cfsEao';
+
 const isValidHttpUrl = (string) => {
   if (!string || typeof string !== 'string') return false;
+  const trimmed = string.trim();
+  if (trimmed.startsWith('sb_publishable_') || trimmed.startsWith('sb_secret_') || trimmed.includes('your-project.supabase.co')) {
+    return false;
+  }
   try {
-    const url = new URL(string.trim());
-    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.hostname.includes('your-project.supabase.co');
+    const url = new URL(trimmed);
+    return url.protocol === 'http:' || url.protocol === 'https:';
   } catch (_) {
     return false;
   }
@@ -17,25 +24,29 @@ const isValidHttpUrl = (string) => {
 const isValidAnonKey = (key) => {
   if (!key || typeof key !== 'string') return false;
   const trimmed = key.trim();
-  return trimmed.length > 20 && trimmed !== 'your-anon-key' && trimmed !== 'your-anon-key-here' && !trimmed.startsWith('sb_secret_');
+  return trimmed.length > 15 && trimmed !== 'your-anon-key' && trimmed !== 'your-anon-key-here' && !trimmed.startsWith('sb_secret_');
 };
 
-// Retrieve configured Supabase URL (from localStorage runtime config or build env)
+// Retrieve configured Supabase URL (from localStorage runtime config, build env, or production project default)
 export const getActiveSupabaseUrl = () => {
   const custom = typeof localStorage !== 'undefined' ? localStorage.getItem('noc_supabase_url') : null;
-  if (custom && isValidHttpUrl(custom)) return custom.trim();
+  if (custom) {
+    if (isValidHttpUrl(custom)) return custom.trim();
+    // If user previously saved a publishable key in URL field, remove bad entry
+    if (typeof localStorage !== 'undefined') localStorage.removeItem('noc_supabase_url');
+  }
   const envUrl = import.meta.env.VITE_SUPABASE_URL;
   if (envUrl && isValidHttpUrl(envUrl)) return envUrl.trim();
-  return '';
+  return DEFAULT_SUPABASE_URL;
 };
 
-// Retrieve configured Supabase Anon Key (from localStorage runtime config or build env)
+// Retrieve configured Supabase Anon Key (from localStorage runtime config, build env, or production project default)
 export const getActiveSupabaseAnonKey = () => {
   const custom = typeof localStorage !== 'undefined' ? localStorage.getItem('noc_supabase_anon_key') : null;
   if (custom && isValidAnonKey(custom)) return custom.trim();
   const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   if (envKey && isValidAnonKey(envKey)) return envKey.trim();
-  return '';
+  return DEFAULT_SUPABASE_ANON_KEY;
 };
 
 let activeClient = null;

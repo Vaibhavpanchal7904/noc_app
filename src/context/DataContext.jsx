@@ -44,13 +44,17 @@ export const isUUID = (str) => {
 export const DataProvider = ({ children }) => {
   const { currentUser } = useAuth();
   const broadcastChannelRef = useRef(null);
+  const isFetchingRef = useRef(false);
+  const isMigratingRef = useRef(false);
+  const hasAutoMigratedRef = useRef(false);
+  const realtimeDebounceRef = useRef(null);
 
   // Client references that can dynamically update
   const [activeClient, setActiveClient] = useState(() => initialSupabase);
   const [isConfigured, setIsConfigured] = useState(() => initialIsConfigured);
 
   // Sync state tracking: 'synced' | 'syncing' | 'error' | 'local'
-  const [syncStatus, setSyncStatus] = useState('syncing');
+  const [syncStatus, setSyncStatus] = useState(() => (initialIsConfigured ? 'syncing' : 'local'));
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [syncError, setSyncError] = useState(null);
   const [migrationStatus, setMigrationStatus] = useState({ migrating: false, message: '' });
@@ -394,7 +398,11 @@ export const DataProvider = ({ children }) => {
     if (!activeClient) {
       return { ok: false, message: 'Supabase is not connected. Configure Supabase in Settings first.' };
     }
+    if (isMigratingRef.current) {
+      return { ok: false, message: 'Migration is already in progress.' };
+    }
 
+    isMigratingRef.current = true;
     setMigrationStatus({ migrating: true, message: 'Analyzing local and cloud records...' });
     let migratedCount = 0;
     let skippedCount = 0;
@@ -418,12 +426,17 @@ export const DataProvider = ({ children }) => {
       const dbOrgs = orgsRes.data || [];
       const dbInsts = instsRes.data || [];
 
-      // 3. Read current local requests
+      // 3. Read current local requests directly from cache
       const savedRaw = localStorage.getItem('noc_requests');
-      const localList = savedRaw ? JSON.parse(savedRaw) : requests;
+      let localList = [];
+      try {
+        localList = savedRaw ? JSON.parse(savedRaw) : [];
+      } catch (_) {
+        localList = [];
+      }
 
       for (const req of localList) {
-        if (!existingNos.has(req.request_no)) {
+        if (req && req.request_no && !existingNos.has(req.request_no)) {
           // Unmigrated request (e.g. created on laptop in local mode)
           const targetReqId = isUUID(req.id) ? req.id : generateUUID();
 
@@ -490,31 +503,34 @@ export const DataProvider = ({ children }) => {
 
       setMigrationStatus({
         migrating: false,
-        message: `Migration successful: ${migratedCount} laptop request(s) uploaded to Supabase cloud. ${skippedCount} already present.`
+        message: `Migration completed: ${migratedCount} request(s) uploaded to Supabase cloud. ${skippedCount} already in cloud.`
       });
 
-      // Refetch from cloud after migration to sync all state
-      fetchCloudData();
       return { ok: true, migratedCount, skippedCount, errors };
     } catch (err) {
-      console.error('Migration failed:', err);
-      setMigrationStatus({ migrating: false, message: `Migration error: ${err.message}` });
+      console.warn('Migration status:', err.message);
+      setMigrationStatus({ migrating: false, message: `Migration notice: ${err.message}` });
       return { ok: false, message: err.message };
+    } finally {
+      isMigratingRef.current = false;
     }
-  }, [activeClient, requests]);
+  }, [activeClient]);
 
-  // Fetch Entire Cloud Data from Supabase
-  const fetchCloudData = useCallback(async () => {
+  // Fetch Entire Cloud Data from Supabase with Concurrency Lock
+  const fetchCloudData = useCallback(async (force = false) => {
     if (!activeClient) {
       setSyncStatus('local');
       return;
     }
+    if (isFetchingRef.current && !force) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+    setSyncStatus('syncing');
 
     try {
-      setSyncStatus('syncing');
-      setSyncError(null);
-
-      // 1. Fetch Master Tables in Parallel
+      // Fetch Master Tables in Parallel
       const [
         orgsRes,
         instsRes,
@@ -546,7 +562,7 @@ export const DataProvider = ({ children }) => {
       ]);
 
       if (reqsRes.error) {
-        throw new Error(`Requests query failed: ${reqsRes.error.message} (Code: ${reqsRes.error.code || 'UNKNOWN'}). Verify RLS permissions.`);
+        throw new Error(`Requests query failed: ${reqsRes.error.message} (Code: ${reqsRes.error.code || 'UNKNOWN'}). Verify database permissions.`);
       }
 
       if (orgsRes.data && orgsRes.data.length > 0) {
@@ -581,13 +597,44 @@ export const DataProvider = ({ children }) => {
       }
 
       setSyncStatus('synced');
+      setSyncError(null);
       setLastSyncTime(new Date().toISOString());
+
+      // Safe One-Time Initial Auto-Migration
+      if (!hasAutoMigratedRef.current) {
+        hasAutoMigratedRef.current = true;
+        const savedRaw = localStorage.getItem('noc_requests');
+        if (savedRaw) {
+          try {
+            const localList = JSON.parse(savedRaw);
+            if (Array.isArray(localList) && localList.length > 0) {
+              syncLocalToCloud();
+            }
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
     } catch (err) {
-      console.error('Supabase cloud fetch error:', err);
+      console.warn('Supabase cloud fetch notice:', err.message);
       setSyncStatus('error');
-      setSyncError(err.message);
+      const isNetworkFail = err.name === 'TypeError' || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
+      const userFriendlyMsg = isNetworkFail
+        ? 'Unable to reach Supabase database. Verify network connection or project settings.'
+        : err.message;
+      setSyncError(userFriendlyMsg);
+    } finally {
+      isFetchingRef.current = false;
     }
-  }, [activeClient, transformSupabaseRequest]);
+  }, [activeClient, transformSupabaseRequest, syncLocalToCloud]);
+
+  // Debounced Realtime Trigger
+  const onRealtimeUpdate = useCallback(() => {
+    if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+    realtimeDebounceRef.current = setTimeout(() => {
+      fetchCloudData(true);
+    }, 1200);
+  }, [fetchCloudData]);
 
   // Initialize Real-time Cloud Connection and Event Subscriptions
   useEffect(() => {
@@ -596,75 +643,39 @@ export const DataProvider = ({ children }) => {
       return;
     }
 
-    fetchCloudData();
-
-    // Check if there are unmigrated requests in localStorage to upload automatically
-    const savedRaw = localStorage.getItem('noc_requests');
-    if (savedRaw) {
-      try {
-        const localList = JSON.parse(savedRaw);
-        if (localList.length > 4) {
-          syncLocalToCloud();
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
+    fetchCloudData(true);
 
     // Subscribe to all changes on public schema tables
     const channel = activeClient
       .channel('noc-global-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'request_items' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'quotations' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'approvals' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_letters' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'work_records' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'institutes' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'agencies' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_authorities' }, () => {
-        fetchCloudData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, () => {
-        fetchCloudData();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'request_items' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quotations' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'approvals' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_letters' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'work_records' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bills' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'institutes' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'agencies' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_authorities' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, onRealtimeUpdate)
       .subscribe();
 
     // Refetch on Window Focus & Network Reconnect
-    const onWindowFocus = () => fetchCloudData();
-    const onOnline = () => fetchCloudData();
+    const onWindowFocus = () => onRealtimeUpdate();
+    const onOnline = () => fetchCloudData(true);
 
     window.addEventListener('focus', onWindowFocus);
     window.addEventListener('online', onOnline);
 
     return () => {
+      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
       activeClient.removeChannel(channel);
       window.removeEventListener('focus', onWindowFocus);
       window.removeEventListener('online', onOnline);
     };
-  }, [activeClient, fetchCloudData, syncLocalToCloud]);
+  }, [activeClient, fetchCloudData, onRealtimeUpdate]);
 
   // Helper to generate Next Request Number e.g. NOC-2026-0002
   const getNextRequestNo = () => {
