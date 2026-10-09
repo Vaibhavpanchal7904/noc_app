@@ -1,9 +1,9 @@
 // =====================================================================
-// NOC Portal - Progressive Web App Service Worker (v1.0.0)
+// NOC Portal - Progressive Web App Service Worker (v1.0.2)
 // =====================================================================
 
-const CACHE_NAME = 'noc-portal-v1.0.0';
-const STATIC_ASSETS = [
+const CACHE_NAME = 'noc-portal-v1.0.2';
+const PRECACHE_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
@@ -13,44 +13,49 @@ const STATIC_ASSETS = [
   '/favicon.svg'
 ];
 
-// Install Event - Pre-cache core shell
+// Install Event - Pre-cache core shell & force immediate activation
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn('PWA: Pre-caching non-fatal warning:', err);
+      return cache.addAll(PRECACHE_ASSETS).catch((err) => {
+        console.warn('PWA: Pre-cache warning:', err);
       });
     })
   );
-  self.skipWaiting();
 });
 
-// Activate Event - Clean old caches
+// Activate Event - Clean all old/stale caches & claim clients immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('PWA: Removing old cache', key);
             return caches.delete(key);
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch Event - Network First with Cache Fallback for dynamic/HTML, Cache First for static
+// Fetch Event - Network First for all HTML navigation, Stale-while-revalidate for static assets
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Skip non-GET requests or browser-extension/supabase websocket calls
-  if (event.request.method !== 'GET' || url.protocol === 'chrome-extension:' || url.pathname.includes('/realtime/')) {
+  // Skip non-GET requests or external/supabase/realtime/extension calls
+  if (
+    event.request.method !== 'GET' ||
+    url.protocol === 'chrome-extension:' ||
+    url.pathname.includes('/realtime/') ||
+    url.pathname.includes('/rest/v1/')
+  ) {
     return;
   }
 
-  // Handle Navigation (HTML Pages) - Network first, fallback to cached / or /index.html
+  // Handle HTML navigation (pages) - Network First, fallback to cached /index.html
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
@@ -64,42 +69,36 @@ self.addEventListener('fetch', (event) => {
         .catch(async () => {
           const cached = await caches.match(event.request);
           if (cached) return cached;
-          return caches.match('/index.html') || caches.match('/');
+          return caches.match('/index.html');
         })
     );
     return;
   }
 
-  // Handle Static Assets (images, fonts, css, scripts)
+  // For JS / CSS / Media - Fetch from network, fallback to cache if offline
+  // NEVER return HTML for a JS or CSS file!
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch in background to revalidate cache
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
-          }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-
-      return fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200 && (url.origin === location.origin || url.hostname.includes('fonts.'))) {
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
-          }
-          return response;
-        })
-        .catch(() => {
-          // Offline fallback
-          return caches.match('/index.html');
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && url.origin === location.origin) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
+        }
+        return networkResponse;
+      })
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        // Do NOT return /index.html for failed JS/CSS requests
+        return new Response('Network error and asset not in offline cache', {
+          status: 408,
+          headers: { 'Content-Type': 'text/plain' }
         });
-    })
+      })
   );
 });
 
-// Push Notification Event (Web Push integration)
+// Push Notification Event (Web Push)
 self.addEventListener('push', (event) => {
   let data = {
     title: 'NOC Portal Notification',

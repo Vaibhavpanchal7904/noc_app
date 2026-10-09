@@ -22,6 +22,7 @@ export const PwaProvider = ({ children }) => {
           .register('/sw.js')
           .then((reg) => {
             setSwRegistration(reg);
+            try { reg.update(); } catch (_) {}
 
             // Check for updates
             reg.onupdatefound = () => {
