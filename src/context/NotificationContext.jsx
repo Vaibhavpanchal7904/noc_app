@@ -64,7 +64,11 @@ export const NotificationProvider = ({ children }) => {
 
   const [activeToast, setActiveToast] = useState(null);
   const [soundEnabled, setSoundEnabled] = useState(() => {
-    return localStorage.getItem('noc_notification_sound') !== 'disabled';
+    try {
+      return localStorage.getItem('noc_notification_sound') !== 'disabled';
+    } catch {
+      return true;
+    }
   });
   const [desktopPermission, setDesktopPermission] = useState(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -75,6 +79,104 @@ export const NotificationProvider = ({ children }) => {
 
   const toastTimerRef = useRef(null);
   const broadcastChannelRef = useRef(null);
+
+  // Trigger Native Desktop Notification
+  const showNativeDesktopNotification = useCallback((notif) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        const title = notif.title || 'New NOC Request Alert';
+        const options = {
+          body: `${notif.requestNo ? notif.requestNo + ': ' : ''}${notif.message}`,
+          icon: '/pwa-icon-192.svg',
+          badge: '/favicon.svg',
+          tag: notif.id || notif.requestId || 'noc-alert',
+          renotify: true
+        };
+
+        const nativeNotif = new Notification(title, options);
+        nativeNotif.onclick = () => {
+          window.focus();
+          if (notif.requestId) {
+            window.location.hash = `#/requests/${notif.requestId}`;
+          }
+          nativeNotif.close();
+        };
+      } catch (err) {
+        console.warn('Could not display native notification:', err);
+      }
+    }
+  }, []);
+
+  // Core handler for incoming notifications
+  const handleIncomingNotification = useCallback((notif, shouldBroadcast = true) => {
+    const newNotif = {
+      id: notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      type: notif.type || 'NEW_REQUEST',
+      title: notif.title || 'New NOC Request Created',
+      message: notif.message || notif.title || 'A new request has been registered.',
+      requestId: notif.requestId || notif.id,
+      requestNo: notif.requestNo || '',
+      instituteName: notif.instituteName || '',
+      createdByName: notif.createdByName || 'NOC Staff',
+      timestamp: notif.timestamp || new Date().toISOString(),
+      read: false,
+      amount: notif.amount || null,
+      stage: notif.stage || 'requirement'
+    };
+
+    // Add to notification center list (avoiding exact duplicates)
+    setNotifications(prev => {
+      if (prev.some(n => n.id === newNotif.id || (n.requestId === newNotif.requestId && n.timestamp === newNotif.timestamp))) {
+        return prev;
+      }
+      return [newNotif, ...prev];
+    });
+
+    // Play pleasant sound
+    if (soundEnabled) {
+      playChimeSound();
+    }
+
+    // Show floating toast
+    setActiveToast(newNotif);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setActiveToast(null);
+    }, 7000);
+
+    // Show native desktop notification if window is minimized or inactive
+    showNativeDesktopNotification(newNotif);
+
+    // Broadcast to other open browser tabs
+    if (shouldBroadcast && broadcastChannelRef.current) {
+      try {
+        broadcastChannelRef.current.postMessage({
+          type: 'NEW_NOTIFICATION',
+          payload: newNotif
+        });
+      } catch (_) {}
+    }
+  }, [soundEnabled, showNativeDesktopNotification]);
+
+  // Public API to dispatch "New Request Created" notification
+  const notifyNewRequest = useCallback((requestData, creatorName) => {
+    const title = 'New NOC Request Created';
+    const reqNo = requestData.request_no || 'NOC';
+    const message = `${reqNo}: ${requestData.title || 'Purchase/Work Request'}`;
+    const by = creatorName || currentUser?.full_name || 'Staff';
+
+    handleIncomingNotification({
+      type: 'NEW_REQUEST',
+      title,
+      message,
+      requestId: requestData.id,
+      requestNo: reqNo,
+      instituteName: requestData.institute_name || '',
+      createdByName: by,
+      amount: requestData.estimated_budget,
+      timestamp: new Date().toISOString()
+    }, true);
+  }, [currentUser, handleIncomingNotification]);
 
   // Sync notifications storage when user switches or notifications change
   useEffect(() => {
@@ -172,102 +274,6 @@ export const NotificationProvider = ({ children }) => {
     }
     return 'unsupported';
   };
-
-  // Trigger Native Desktop Notification
-  const showNativeDesktopNotification = useCallback((notif) => {
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        const title = notif.title || 'New NOC Request Alert';
-        const options = {
-          body: `${notif.requestNo ? notif.requestNo + ': ' : ''}${notif.message}`,
-          icon: '/pwa-icon-192.svg',
-          badge: '/favicon.svg',
-          tag: notif.id || notif.requestId || 'noc-alert',
-          renotify: true
-        };
-
-        const nativeNotif = new Notification(title, options);
-        nativeNotif.onclick = () => {
-          window.focus();
-          if (notif.requestId) {
-            window.location.hash = `#/requests/${notif.requestId}`;
-          }
-          nativeNotif.close();
-        };
-      } catch (err) {
-        console.warn('Could not display native notification:', err);
-      }
-    }
-  }, []);
-
-  // Core handler for incoming notifications
-  const handleIncomingNotification = useCallback((notif, shouldBroadcast = true) => {
-    const newNotif = {
-      id: notif.id || `notif-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      type: notif.type || 'NEW_REQUEST',
-      title: notif.title || 'New NOC Request Created',
-      message: notif.message || notif.title || 'A new request has been registered.',
-      requestId: notif.requestId || notif.id,
-      requestNo: notif.requestNo || '',
-      instituteName: notif.instituteName || '',
-      createdByName: notif.createdByName || 'NOC Staff',
-      timestamp: notif.timestamp || new Date().toISOString(),
-      read: false,
-      amount: notif.amount || null,
-      stage: notif.stage || 'requirement'
-    };
-
-    // Add to notification center list (avoiding exact duplicates)
-    setNotifications(prev => {
-      if (prev.some(n => n.id === newNotif.id || (n.requestId === newNotif.requestId && n.timestamp === newNotif.timestamp))) {
-        return prev;
-      }
-      return [newNotif, ...prev];
-    });
-
-    // Play pleasant sound
-    if (soundEnabled) {
-      playChimeSound();
-    }
-
-    // Show floating toast
-    setActiveToast(newNotif);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => {
-      setActiveToast(null);
-    }, 7000);
-
-    // Show native desktop notification if window is minimized or inactive
-    showNativeDesktopNotification(newNotif);
-
-    // Broadcast to other open browser tabs
-    if (shouldBroadcast && broadcastChannelRef.current) {
-      broadcastChannelRef.current.postMessage({
-        type: 'NEW_NOTIFICATION',
-        payload: newNotif
-      });
-    }
-  }, [soundEnabled, showNativeDesktopNotification]);
-
-  // Public API to dispatch "New Request Created" notification
-  const notifyNewRequest = useCallback((requestData, creatorName) => {
-    const title = 'New NOC Request Created';
-    const reqNo = requestData.request_no || 'NOC';
-    const message = `${reqNo}: ${requestData.title || 'Purchase/Work Request'}`;
-    const by = creatorName || currentUser?.full_name || 'Staff';
-
-    handleIncomingNotification({
-      type: 'NEW_REQUEST',
-      title,
-      message,
-      requestId: requestData.id,
-      requestNo: reqNo,
-      instituteName: requestData.institute_name || '',
-      createdByName: by,
-      amount: requestData.estimated_budget,
-      timestamp: new Date().toISOString()
-    }, true);
-  }, [currentUser, handleIncomingNotification]);
 
   // Mark single as read
   const markAsRead = (id) => {
