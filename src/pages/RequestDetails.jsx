@@ -13,6 +13,7 @@ import {
   Camera,
   Plus,
   Trash2,
+  Edit2,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -44,11 +45,17 @@ export const RequestDetails = () => {
     documents,
     updateRequest,
     addQuotation,
+    updateQuotation,
+    deleteQuotation,
     selectQuotation,
     submitApproval,
+    updateApproval,
+    deleteApproval,
     issueApprovalLetter,
     updateWorkStatus,
     addBill,
+    updateBill,
+    deleteBill,
     closeRequest,
     reopenRequest,
     deleteRequest,
@@ -80,11 +87,15 @@ export const RequestDetails = () => {
   };
 
   // Modals State
+  const [showEditReqModal, setShowEditReqModal] = useState(false);
   const [showAddQuotModal, setShowAddQuotModal] = useState(false);
+  const [editingQuot, setEditingQuot] = useState(null);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [editingAppr, setEditingAppr] = useState(null);
   const [showLetterModal, setShowLetterModal] = useState(false);
   const [showWorkModal, setShowWorkModal] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
+  const [editingBill, setEditingBill] = useState(null);
   const [showScannerModal, setShowScannerModal] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showReopenModal, setShowReopenModal] = useState(false);
@@ -93,7 +104,24 @@ export const RequestDetails = () => {
   const [selectedDocForPreview, setSelectedDocForPreview] = useState(null);
 
   // Forms State
-  // 1. Add Quotation Form
+  // 0. Edit Requirement Form
+  const [reqEditForm, setReqEditForm] = useState({
+    title: '',
+    request_type: 'Hardware Procurement',
+    org_id: '',
+    institute_id: '',
+    estimated_budget: '',
+    request_date: new Date().toISOString().split('T')[0],
+    clg_out_no: '',
+    clg_out_date: '',
+    clg_in_no: '',
+    clg_in_date: '',
+    description: '',
+    internal_notes: '',
+    items: []
+  });
+
+  // 1. Add/Edit Quotation Form
   const [quotForm, setQuotForm] = useState({
     agency_id: '',
     quotation_no: '',
@@ -160,44 +188,85 @@ export const RequestDetails = () => {
   const [closureReason, setClosureReason] = useState('All procurement, installation, and bill settlements completed.');
   const [reopenReason, setReopenReason] = useState('');
 
-  if (!request) {
-    return (
-      <div className="empty-state">
-        <AlertCircle className="empty-state-icon" />
-        <div className="empty-state-title">Request Not Found</div>
-        <div className="empty-state-desc">The requested NOC file does not exist or has been archived.</div>
-        <Link to="/requests" className="btn btn-primary" style={{ marginTop: 12 }}>
-          Back to All Requests
-        </Link>
-      </div>
-    );
-  }
+  // Requirement Edit Handlers
+  const handleOpenEditReq = () => {
+    if (!request) return;
+    setReqEditForm({
+      title: request.title || '',
+      request_type: request.request_type || 'Hardware Procurement',
+      org_id: request.org_id || organizations[0]?.id || '',
+      institute_id: request.institute_id || '',
+      estimated_budget: request.estimated_budget !== undefined && request.estimated_budget !== null ? String(request.estimated_budget) : '',
+      request_date: request.request_date || new Date().toISOString().split('T')[0],
+      clg_out_no: request.clg_out_no || '',
+      clg_out_date: request.clg_out_date || '',
+      clg_in_no: request.clg_in_no || '',
+      clg_in_date: request.clg_in_date || '',
+      description: request.description || '',
+      internal_notes: request.internal_notes || '',
+      items: (request.items || []).map(it => ({ ...it }))
+    });
+    setShowEditReqModal(true);
+  };
 
-  const inst = institutes.find(i => i.id === request.institute_id);
-  const org = organizations.find(o => o.id === request.org_id);
-  const requestDocs = documents.filter(d => d.request_id === request.id);
+  const handleAddItem = () => {
+    setReqEditForm(prev => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          id: 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+          item_name: '',
+          category: 'General Hardware',
+          quantity: 1,
+          unit: 'Nos',
+          specifications: '',
+          estimated_unit_price: ''
+        }
+      ]
+    }));
+  };
 
-  // Workflow Stages Checklist
-  const hasQuotations = (request.quotations || []).length > 0;
-  const selectedQuot = request.quotations?.find(q => q.is_selected);
-  const hasSelectedQuot = Boolean(selectedQuot);
-  const latestApproval = request.approvals?.[request.approvals.length - 1];
-  const isApproved = latestApproval?.decision === 'Approved';
-  const hasLetter = Boolean(request.approval_letter);
-  const isWorkCompleted = request.work_record?.status === 'Completed';
-  const hasApprovedBill = request.bills?.some(b => b.bill_status === 'Approved');
-  const isClosed = request.overall_status === 'Closed';
+  const handleRemoveItem = (index) => {
+    setReqEditForm(prev => ({
+      ...prev,
+      items: prev.items.filter((_, idx) => idx !== index)
+    }));
+  };
 
-  // Selected Vendor
-  const selectedAgencyId = latestApproval?.selected_agency_id || selectedQuot?.agency_id || request.work_record?.agency_id;
-  const selectedAgency = agencies.find(a => a.id === selectedAgencyId);
+  const handleItemChange = (index, field, value) => {
+    setReqEditForm(prev => {
+      const updated = [...prev.items];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, items: updated };
+    });
+  };
 
-  // Filter authorities for the request's organization (with fallback to all active authorities)
-  const orgAuthorities = authorities.filter(a => (a.org_id === request.org_id || a.org_code === org?.code) && a.is_active);
-  const availableAuthorities = orgAuthorities.length > 0 ? orgAuthorities : authorities.filter(a => a.is_active);
+  const handleSaveEditReq = async (e) => {
+    e.preventDefault();
+    if (!reqEditForm.title.trim()) {
+      alert('Please enter subject / title.');
+      return;
+    }
+    if (!reqEditForm.institute_id) {
+      alert('Please select a college / department.');
+      return;
+    }
+    try {
+      await updateRequest(request.id, {
+        ...reqEditForm,
+        estimated_budget: reqEditForm.estimated_budget ? parseFloat(reqEditForm.estimated_budget) : null
+      });
+      setShowEditReqModal(false);
+    } catch (err) {
+      console.error('Failed to update request:', err);
+      alert('Error updating request: ' + (err.message || 'Unknown error'));
+    }
+  };
 
-  // Handlers
+  // Quotation Handlers
   const handleOpenAddQuotation = () => {
+    setEditingQuot(null);
     const defaultSub = request.estimated_budget ? String(request.estimated_budget) : '';
     const sub = parseFloat(defaultSub) || 0;
     const defaultTaxP = '18';
@@ -217,6 +286,34 @@ export const RequestDetails = () => {
       remarks: ''
     });
     setShowAddQuotModal(true);
+  };
+
+  const handleOpenEditQuotation = (q) => {
+    setEditingQuot(q);
+    setQuotForm({
+      agency_id: q.agency_id || agencies[0]?.id || '',
+      quotation_no: q.quotation_no || '',
+      quotation_date: q.quotation_date || new Date().toISOString().split('T')[0],
+      subtotal_amount: q.subtotal_amount !== undefined && q.subtotal_amount !== null ? String(q.subtotal_amount) : '',
+      tax_percent: q.tax_percent !== undefined && q.tax_percent !== null ? String(q.tax_percent) : '0',
+      tax_amount: q.tax_amount !== undefined && q.tax_amount !== null ? String(q.tax_amount) : '0.00',
+      other_charges: q.other_charges !== undefined && q.other_charges !== null ? String(q.other_charges) : '0.00',
+      total_amount: q.total_amount !== undefined && q.total_amount !== null ? String(q.total_amount) : '',
+      validity_date: q.validity_date || '',
+      delivery_timeline: q.delivery_timeline || '15 Days',
+      remarks: q.remarks || ''
+    });
+    setShowAddQuotModal(true);
+  };
+
+  const handleDeleteQuotation = async (quotId) => {
+    if (confirm('Are you sure you want to delete this quotation?')) {
+      try {
+        await deleteQuotation(request.id, quotId);
+      } catch (err) {
+        alert('Failed to delete quotation: ' + (err.message || 'Unknown error'));
+      }
+    }
   };
 
   const handleQuotSubtotalChange = (val) => {
@@ -280,7 +377,7 @@ export const RequestDetails = () => {
     }));
   };
 
-  const handleSaveQuotation = (e) => {
+  const handleSaveQuotation = async (e) => {
     e.preventDefault();
     if (!quotForm.agency_id) {
       alert('Please select an agency.');
@@ -290,11 +387,22 @@ export const RequestDetails = () => {
       alert('Please enter quoted amount.');
       return;
     }
-    addQuotation(request.id, quotForm);
-    setShowAddQuotModal(false);
+    try {
+      if (editingQuot) {
+        await updateQuotation(request.id, editingQuot.id, quotForm);
+      } else {
+        await addQuotation(request.id, quotForm);
+      }
+      setShowAddQuotModal(false);
+      setEditingQuot(null);
+    } catch (err) {
+      alert('Failed to save quotation: ' + (err.message || 'Unknown error'));
+    }
   };
 
+  // Approval Handlers
   const handleOpenApprovalModal = () => {
+    setEditingAppr(null);
     const chosenQuot = selectedQuot || request.quotations?.[0];
     const defaultAuth = availableAuthorities[0]?.id || authorities[0]?.id || '';
     setApprForm({
@@ -310,6 +418,31 @@ export const RequestDetails = () => {
     setShowApprovalModal(true);
   };
 
+  const handleOpenEditApproval = (appr) => {
+    setEditingAppr(appr);
+    setApprForm({
+      authority_id: appr.authority_id || authorities[0]?.id || '',
+      selected_agency_id: appr.selected_agency_id || agencies[0]?.id || '',
+      proposed_amount: appr.proposed_amount !== undefined && appr.proposed_amount !== null ? String(appr.proposed_amount) : '',
+      decision: appr.decision || 'Approved',
+      decision_date: appr.decision_date || new Date().toISOString().split('T')[0],
+      approved_amount: appr.approved_amount !== undefined && appr.approved_amount !== null ? String(appr.approved_amount) : '',
+      decision_remarks: appr.decision_remarks || '',
+      is_recorded_external: Boolean(appr.is_recorded_external)
+    });
+    setShowApprovalModal(true);
+  };
+
+  const handleDeleteApproval = async (apprId) => {
+    if (confirm('Are you sure you want to delete this approval record?')) {
+      try {
+        await deleteApproval(request.id, apprId);
+      } catch (err) {
+        alert('Failed to delete approval: ' + (err.message || 'Unknown error'));
+      }
+    }
+  };
+
   const handleSaveApproval = async (e) => {
     e.preventDefault();
     if (!apprForm.authority_id) {
@@ -317,8 +450,13 @@ export const RequestDetails = () => {
       return;
     }
     try {
-      await submitApproval(request.id, apprForm);
+      if (editingAppr) {
+        await updateApproval(request.id, editingAppr.id, apprForm);
+      } else {
+        await submitApproval(request.id, apprForm);
+      }
       setShowApprovalModal(false);
+      setEditingAppr(null);
       if (apprForm.decision === 'Approved') {
         switchTab('letter');
       } else if (apprForm.decision === 'Returned for Clarification') {
@@ -326,7 +464,7 @@ export const RequestDetails = () => {
       }
     } catch (err) {
       console.error('Approval submission error:', err);
-      alert('Failed to submit approval: ' + (err.message || 'Unknown error'));
+      alert('Failed to save approval: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -445,7 +583,9 @@ export const RequestDetails = () => {
     }
   };
 
+  // Bill Handlers
   const handleOpenBillModal = () => {
+    setEditingBill(null);
     const apprAmt = latestApproval?.approved_amount || request.estimated_budget || '0';
     setBillForm({
       agency_id: selectedAgencyId || agencies[0]?.id || '',
@@ -461,6 +601,32 @@ export const RequestDetails = () => {
     setShowBillModal(true);
   };
 
+  const handleOpenEditBill = (b) => {
+    setEditingBill(b);
+    setBillForm({
+      agency_id: b.agency_id || agencies[0]?.id || '',
+      bill_no: b.bill_no || '',
+      bill_date: b.bill_date || new Date().toISOString().split('T')[0],
+      submitted_amount: b.submitted_amount !== undefined && b.submitted_amount !== null ? String(b.submitted_amount) : '',
+      bill_approval_date: b.bill_approval_date || new Date().toISOString().split('T')[0],
+      approved_amount: b.approved_amount !== undefined && b.approved_amount !== null ? String(b.approved_amount) : '',
+      bill_status: b.bill_status || 'Submitted',
+      payment_ref: b.payment_ref || '',
+      remarks: b.remarks || ''
+    });
+    setShowBillModal(true);
+  };
+
+  const handleDeleteBill = async (billId) => {
+    if (confirm('Are you sure you want to delete this bill?')) {
+      try {
+        await deleteBill(request.id, billId);
+      } catch (err) {
+        alert('Failed to delete bill: ' + (err.message || 'Unknown error'));
+      }
+    }
+  };
+
   const handleSaveBill = async (e) => {
     e.preventDefault();
     if (!billForm.bill_no.trim()) {
@@ -472,8 +638,13 @@ export const RequestDetails = () => {
       return;
     }
     try {
-      await addBill(request.id, billForm);
+      if (editingBill) {
+        await updateBill(request.id, editingBill.id, billForm);
+      } else {
+        await addBill(request.id, billForm);
+      }
       setShowBillModal(false);
+      setEditingBill(null);
       switchTab('documents');
     } catch (err) {
       console.error('Bill submission error:', err);
@@ -645,8 +816,13 @@ export const RequestDetails = () => {
       {activeTab === 'overview' && (
         <div>
           <div className="card">
-            <div className="card-header">
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="card-title">Requirement Overview & College References</div>
+              {permissions.canEditRequest && (
+                <button className="btn btn-secondary btn-sm" onClick={handleOpenEditReq}>
+                  <Edit2 size={14} /> Edit Request Details
+                </button>
+              )}
             </div>
             <div className="card-body">
               <div className="form-row" style={{ marginBottom: 16 }}>
@@ -708,8 +884,13 @@ export const RequestDetails = () => {
 
           {/* Items Table */}
           <div className="card">
-            <div className="card-header">
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="card-title">Requirement Line Items & Specifications</div>
+              {permissions.canEditRequest && (
+                <button className="btn btn-secondary btn-sm" onClick={handleOpenEditReq}>
+                  <Edit2 size={14} /> Edit Items
+                </button>
+              )}
             </div>
             <div className="card-body" style={{ padding: 0 }}>
               <div className="table-container" style={{ border: 'none' }}>
@@ -782,6 +963,7 @@ export const RequestDetails = () => {
                       <th>Total Amount (INR)</th>
                       <th>Timeline</th>
                       <th>Selected</th>
+                      <th style={{ width: '130px' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -813,12 +995,36 @@ export const RequestDetails = () => {
                                 </span>
                               )}
                             </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                {permissions.canAddQuotation && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '4px 8px' }}
+                                    onClick={() => handleOpenEditQuotation(q)}
+                                    title="Edit Quotation"
+                                  >
+                                    <Edit2 size={13} /> Edit
+                                  </button>
+                                )}
+                                {permissions.canDeleteRequest && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '4px 8px', color: '#dc2626', borderColor: '#fca5a5' }}
+                                    onClick={() => handleDeleteQuotation(q.id)}
+                                    title="Delete Quotation"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           <div className="empty-state">
                             <FileSpreadsheet className="empty-state-icon" />
                             <div className="empty-state-title">No agency quotations submitted yet</div>
@@ -929,6 +1135,7 @@ export const RequestDetails = () => {
                       <th>Decision Date</th>
                       <th>Recorded Mode</th>
                       <th>Remarks</th>
+                      <th style={{ width: '130px' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -958,12 +1165,36 @@ export const RequestDetails = () => {
                               </span>
                             </td>
                             <td style={{ fontSize: 12, color: '#475569' }}>{appr.decision_remarks || '-'}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                {permissions.canApprove && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '4px 8px' }}
+                                    onClick={() => handleOpenEditApproval(appr)}
+                                    title="Edit Approval"
+                                  >
+                                    <Edit2 size={13} /> Edit
+                                  </button>
+                                )}
+                                {permissions.canDeleteRequest && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '4px 8px', color: '#dc2626', borderColor: '#fca5a5' }}
+                                    onClick={() => handleDeleteApproval(appr.id)}
+                                    title="Delete Approval"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={10}>
                           <div className="empty-state">
                             <CheckSquare className="empty-state-icon" />
                             <div className="empty-state-title">
@@ -1300,6 +1531,7 @@ export const RequestDetails = () => {
                       <th>Bill Status</th>
                       <th>Payment Reference</th>
                       <th>Remarks</th>
+                      <th style={{ width: '130px' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1323,12 +1555,36 @@ export const RequestDetails = () => {
                             </td>
                             <td>{b.payment_ref || '-'}</td>
                             <td style={{ fontSize: 12 }}>{b.remarks || '-'}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                {permissions.canManageBills && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '4px 8px' }}
+                                    onClick={() => handleOpenEditBill(b)}
+                                    title="Edit Bill"
+                                  >
+                                    <Edit2 size={13} /> Edit
+                                  </button>
+                                )}
+                                {permissions.canDeleteRequest && (
+                                  <button
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '4px 8px', color: '#dc2626', borderColor: '#fca5a5' }}
+                                    onClick={() => handleDeleteBill(b.id)}
+                                    title="Delete Bill"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })
                     ) : (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={10}>
                           <div className="empty-state">
                             <Receipt className="empty-state-icon" />
                             <div className="empty-state-title">No vendor bills submitted yet</div>
@@ -1445,13 +1701,297 @@ export const RequestDetails = () => {
         </div>
       )}
 
-      {/* MODAL 1: ADD QUOTATION */}
+      {/* MODAL 0: EDIT REQUIREMENT DETAILS */}
+      {showEditReqModal && (
+        <div className="modal-backdrop">
+          <div className="modal-dialog modal-lg" style={{ maxWidth: 840 }}>
+            <div className="modal-header">
+              <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Edit2 size={18} /> Edit Requirement Details ({request.request_no})
+              </div>
+              <button className="btn-icon" onClick={() => setShowEditReqModal(false)}>✕</button>
+            </div>
+            <form onSubmit={handleSaveEditReq}>
+              <div className="modal-body" style={{ maxHeight: 'calc(85vh - 120px)', overflowY: 'auto' }}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Managing Organization <span className="required">*</span></label>
+                    <select
+                      className="form-control"
+                      value={reqEditForm.org_id}
+                      onChange={e => {
+                        const newOrgId = e.target.value;
+                        const matchingInsts = institutes.filter(i => i.org_id === newOrgId || (newOrgId === 'org-cvmu' ? (i.org_code === 'CVMU' || i.org_id === '22222222-2222-2222-2222-222222222222') : (i.org_code !== 'CVMU' && i.org_id !== '22222222-2222-2222-2222-222222222222')));
+                        setReqEditForm(prev => ({
+                          ...prev,
+                          org_id: newOrgId,
+                          institute_id: matchingInsts[0]?.id || ''
+                        }));
+                      }}
+                      required
+                    >
+                      {organizations.map(o => (
+                        <option key={o.id} value={o.id}>{o.name} ({o.code})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">College / Department <span className="required">*</span></label>
+                    <select
+                      className="form-control"
+                      value={reqEditForm.institute_id}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, institute_id: e.target.value }))}
+                      required
+                    >
+                      <option value="">-- Select College / Institute --</option>
+                      {institutes
+                        .filter(i => {
+                          const isCvmu = reqEditForm.org_id === 'org-cvmu' || reqEditForm.org_id === '22222222-2222-2222-2222-222222222222';
+                          if (isCvmu) {
+                            return i.org_id === 'org-cvmu' || i.org_id === '22222222-2222-2222-2222-222222222222' || i.org_code === 'CVMU';
+                          }
+                          return i.org_id !== 'org-cvmu' && i.org_id !== '22222222-2222-2222-2222-222222222222' && i.org_code !== 'CVMU';
+                        })
+                        .map(i => (
+                          <option key={i.id} value={i.id}>{i.name}</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Request Type <span className="required">*</span></label>
+                    <select
+                      className="form-control"
+                      value={reqEditForm.request_type}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, request_type: e.target.value }))}
+                      required
+                    >
+                      <option value="Hardware Procurement">Hardware Procurement</option>
+                      <option value="Network Infrastructure">Network Infrastructure / LAN</option>
+                      <option value="CCTV Surveillance">CCTV Surveillance</option>
+                      <option value="Projector / AV Setup">Projector / Audio-Visual</option>
+                      <option value="Software License">Software Licensing</option>
+                      <option value="Repair / Maintenance">Repair / AMC / Maintenance</option>
+                      <option value="Other">Other Requirement</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Subject / Title <span className="required">*</span></label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={reqEditForm.title}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, title: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Estimated Budget (INR)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="form-control"
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                      value={reqEditForm.estimated_budget}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, estimated_budget: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Request Registration Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={reqEditForm.request_date}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, request_date: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">College Outward Letter No</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={reqEditForm.clg_out_no}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, clg_out_no: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">College Outward Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={reqEditForm.clg_out_date}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, clg_out_date: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">NOC Inward Register No</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={reqEditForm.clg_in_no}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, clg_in_no: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">NOC Inward Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={reqEditForm.clg_in_date}
+                      onChange={e => setReqEditForm(prev => ({ ...prev, clg_in_date: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Description / Scope of Work</label>
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    value={reqEditForm.description}
+                    onChange={e => setReqEditForm(prev => ({ ...prev, description: e.target.value }))}
+                  />
+                </div>
+
+                {/* Editable Items Table */}
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>
+                      Line Items & Technical Specifications
+                    </label>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddItem}>
+                      <Plus size={13} /> Add Item Row
+                    </button>
+                  </div>
+
+                  <div className="table-container" style={{ border: '1px solid #cbd5e1' }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '28%' }}>Item Name</th>
+                          <th style={{ width: '18%' }}>Category</th>
+                          <th style={{ width: '12%' }}>Qty</th>
+                          <th style={{ width: '12%' }}>Unit</th>
+                          <th style={{ width: '18%' }}>Est. Unit Price</th>
+                          <th style={{ width: '12%' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(reqEditForm.items || []).map((it, idx) => (
+                          <tr key={it.id || idx}>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control"
+                                placeholder="Item name"
+                                value={it.item_name}
+                                onChange={e => handleItemChange(idx, 'item_name', e.target.value)}
+                                required
+                              />
+                              <input
+                                type="text"
+                                className="form-control"
+                                style={{ marginTop: 4, fontSize: 11 }}
+                                placeholder="Specifications / details"
+                                value={it.specifications || ''}
+                                onChange={e => handleItemChange(idx, 'specifications', e.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control"
+                                placeholder="Category"
+                                value={it.category || ''}
+                                onChange={e => handleItemChange(idx, 'category', e.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                min="1"
+                                className="form-control"
+                                value={it.quantity}
+                                onChange={e => handleItemChange(idx, 'quantity', e.target.value)}
+                                required
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control"
+                                placeholder="Nos"
+                                value={it.unit || 'Nos'}
+                                onChange={e => handleItemChange(idx, 'unit', e.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                step="0.01"
+                                className="form-control"
+                                placeholder="0.00"
+                                value={it.estimated_unit_price || ''}
+                                onChange={e => handleItemChange(idx, 'estimated_unit_price', e.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ color: '#dc2626', borderColor: '#fca5a5' }}
+                                onClick={() => handleRemoveItem(idx)}
+                                title="Remove item"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: 16 }}>
+                  <label className="form-label">Internal Department Notes</label>
+                  <textarea
+                    className="form-control"
+                    rows={2}
+                    placeholder="Internal remarks for NOC team..."
+                    value={reqEditForm.internal_notes}
+                    onChange={e => setReqEditForm(prev => ({ ...prev, internal_notes: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowEditReqModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: ADD / EDIT QUOTATION */}
       {showAddQuotModal && (
         <div className="modal-backdrop">
           <div className="modal-dialog modal-lg">
             <div className="modal-header">
-              <div className="modal-title">Record Agency Quotation</div>
-              <button className="btn-icon" onClick={() => setShowAddQuotModal(false)}>✕</button>
+              <div className="modal-title">{editingQuot ? 'Edit Agency Quotation' : 'Record Agency Quotation'}</div>
+              <button className="btn-icon" onClick={() => { setShowAddQuotModal(false); setEditingQuot(null); }}>✕</button>
             </div>
             <form onSubmit={handleSaveQuotation}>
               <div className="modal-body">
@@ -1637,8 +2177,8 @@ export const RequestDetails = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowAddQuotModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Quotation</button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowAddQuotModal(false); setEditingQuot(null); }}>Cancel</button>
+                <button type="submit" className="btn btn-primary">{editingQuot ? 'Update Quotation' : 'Save Quotation'}</button>
               </div>
             </form>
           </div>
@@ -1650,8 +2190,8 @@ export const RequestDetails = () => {
         <div className="modal-backdrop">
           <div className="modal-dialog modal-lg">
             <div className="modal-header">
-              <div className="modal-title">Record Sanction / Approval Decision</div>
-              <button className="btn-icon" onClick={() => setShowApprovalModal(false)}>✕</button>
+              <div className="modal-title">{editingAppr ? 'Edit Sanction / Approval Decision' : 'Record Sanction / Approval Decision'}</div>
+              <button className="btn-icon" onClick={() => { setShowApprovalModal(false); setEditingAppr(null); }}>✕</button>
             </div>
             <form onSubmit={handleSaveApproval}>
               <div className="modal-body">
@@ -1751,8 +2291,8 @@ export const RequestDetails = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowApprovalModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Approval Record</button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowApprovalModal(false); setEditingAppr(null); }}>Cancel</button>
+                <button type="submit" className="btn btn-primary">{editingAppr ? 'Update Approval Record' : 'Save Approval Record'}</button>
               </div>
             </form>
           </div>
@@ -2064,8 +2604,8 @@ export const RequestDetails = () => {
         <div className="modal-backdrop">
           <div className="modal-dialog modal-lg">
             <div className="modal-header">
-              <div className="modal-title">Record Vendor Bill / Invoice</div>
-              <button className="btn-icon" onClick={() => setShowBillModal(false)}>✕</button>
+              <div className="modal-title">{editingBill ? 'Edit Vendor Bill / Invoice' : 'Record Vendor Bill / Invoice'}</div>
+              <button className="btn-icon" onClick={() => { setShowBillModal(false); setEditingBill(null); }}>✕</button>
             </div>
             <form onSubmit={handleSaveBill}>
               <div className="modal-body">
@@ -2182,8 +2722,8 @@ export const RequestDetails = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowBillModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Bill</button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowBillModal(false); setEditingBill(null); }}>Cancel</button>
+                <button type="submit" className="btn btn-primary">{editingBill ? 'Update Bill' : 'Save Bill'}</button>
               </div>
             </form>
           </div>

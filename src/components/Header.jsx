@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Menu, Search, RefreshCw, Shield, Check, Database, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Menu, Search, RefreshCw, Shield, Check, Database, CheckCircle2, AlertTriangle, Bell } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { DEFAULT_USERS } from '../data/initialData';
 import { useNavigate } from 'react-router-dom';
+import { NotificationCenter } from './NotificationCenter';
+import { PwaInstallButton } from './PwaInstallButton';
 
 export const Header = ({ onToggleSidebar }) => {
   const { currentUser, switchDemoUser, isConfigured } = useAuth();
@@ -101,6 +103,12 @@ export const Header = ({ onToggleSidebar }) => {
         </div>
 
         <div className="header-right">
+          {/* PWA Install App Button */}
+          <PwaInstallButton />
+
+          {/* Realtime Notification Center Bell */}
+          <NotificationCenter />
+
           {/* Connection & Sync Status Badge */}
           <button 
             className="badge header-status-badge"

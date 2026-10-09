@@ -694,7 +694,14 @@ export const DataProvider = ({ children }) => {
     // Subscribe to changes on public schema tables
     const channel = activeClient
       .channel('noc-global-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requests' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
+        if (payload?.new) {
+          window.dispatchEvent(new CustomEvent('noc_request_inserted_realtime', { detail: payload.new }));
+        }
+        onRealtimeUpdate();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'requests' }, onRealtimeUpdate)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'requests' }, onRealtimeUpdate)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'request_items' }, onRealtimeUpdate)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quotations' }, onRealtimeUpdate)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'approvals' }, onRealtimeUpdate)
@@ -810,6 +817,14 @@ export const DataProvider = ({ children }) => {
     });
     notifyCrossTab();
 
+    // Trigger in-app & desktop notification
+    window.dispatchEvent(new CustomEvent('noc_request_created', {
+      detail: {
+        request: newRequest,
+        user: currentUser
+      }
+    }));
+
     // Supabase Cloud Persistence
     if (activeClient) {
       try {
@@ -902,9 +917,16 @@ export const DataProvider = ({ children }) => {
 
   // 2. Update Request
   const updateRequest = async (reqId, updates) => {
+    const orgUuid = updates.org_id ? resolveOrgUuid(updates.org_id) : undefined;
+    const instUuid = updates.institute_id ? resolveInstUuid(updates.institute_id) : undefined;
+
     setRequests(prev => prev.map(req => {
-      if (req.id === reqId) {
-        const updated = { ...req, ...updates, updated_at: new Date().toISOString() };
+      if (req.id === reqId || req.request_no === reqId) {
+        const updated = {
+          ...req,
+          ...updates,
+          updated_at: new Date().toISOString()
+        };
         logAudit('UPDATE_REQUEST', 'request', req.request_no, updates);
         return updated;
       }
@@ -919,14 +941,41 @@ export const DataProvider = ({ children }) => {
         if (updates.description !== undefined) cloudUpdates.description = updates.description;
         if (updates.estimated_budget !== undefined) cloudUpdates.estimated_budget = updates.estimated_budget;
         if (updates.request_type !== undefined) cloudUpdates.request_type = updates.request_type;
+        if (updates.request_date !== undefined) cloudUpdates.request_date = updates.request_date;
+        if (orgUuid !== undefined) cloudUpdates.org_id = orgUuid;
+        if (instUuid !== undefined) cloudUpdates.institute_id = instUuid;
         if (updates.clg_out_no !== undefined) cloudUpdates.clg_out_no = updates.clg_out_no;
+        if (updates.clg_out_date !== undefined) cloudUpdates.clg_out_date = updates.clg_out_date;
         if (updates.clg_in_no !== undefined) cloudUpdates.clg_in_no = updates.clg_in_no;
+        if (updates.clg_in_date !== undefined) cloudUpdates.clg_in_date = updates.clg_in_date;
         if (updates.internal_notes !== undefined) cloudUpdates.internal_notes = updates.internal_notes;
         if (updates.current_stage !== undefined) cloudUpdates.current_stage = updates.current_stage;
         if (updates.overall_status !== undefined) cloudUpdates.overall_status = updates.overall_status;
         cloudUpdates.updated_at = new Date().toISOString();
 
         await activeClient.from('requests').update(cloudUpdates).eq('id', reqId);
+
+        if (Array.isArray(updates.items) && isUUID(reqId)) {
+          try {
+            await activeClient.from('request_items').delete().eq('request_id', reqId);
+            for (let i = 0; i < updates.items.length; i++) {
+              const it = updates.items[i];
+              await activeClient.from('request_items').insert({
+                id: isUUID(it.id) ? it.id : generateUUID(),
+                request_id: reqId,
+                item_name: it.item_name || `Item ${i + 1}`,
+                category: it.category || 'General',
+                quantity: parseInt(it.quantity) || 1,
+                unit: it.unit || 'Nos',
+                specifications: it.specifications || null,
+                estimated_unit_price: it.estimated_unit_price ? parseFloat(it.estimated_unit_price) : null,
+                sort_order: i + 1
+              });
+            }
+          } catch (e) {
+            console.error('Failed to sync updated request items to Supabase:', e);
+          }
+        }
       } catch (err) {
         console.error('Failed to sync request update to Supabase:', err);
       }
@@ -977,7 +1026,7 @@ export const DataProvider = ({ children }) => {
     let nextStatus = 'Pending Quotations';
 
     setRequests(prev => prev.map(req => {
-      if (req.id === reqId) {
+      if (req.id === reqId || req.request_no === reqId) {
         const updatedQuots = [...(req.quotations || []), newQuot];
         nextStage = req.current_stage === 'requirement' ? 'quotations' : req.current_stage;
         nextStatus = req.overall_status === 'Draft' ? 'Pending Quotations' : req.overall_status;
@@ -991,7 +1040,7 @@ export const DataProvider = ({ children }) => {
       return req;
     }));
 
-    const req = requests.find(r => r.id === reqId);
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
     logAudit('ADD_QUOTATION', 'quotation', quotId, {
       request_no: req?.request_no,
       agency_id: quotationData.agency_id,
@@ -1003,7 +1052,7 @@ export const DataProvider = ({ children }) => {
       try {
         await activeClient.from('quotations').insert({
           id: quotId,
-          request_id: reqId,
+          request_id: req?.id || reqId,
           agency_id: agencyUuid,
           quotation_no: newQuot.quotation_no || null,
           quotation_date: newQuot.quotation_date || null,
@@ -1023,13 +1072,118 @@ export const DataProvider = ({ children }) => {
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
-        }).eq('id', reqId);
+        }).eq('id', req?.id || reqId);
       } catch (err) {
         console.error('Failed to sync quotation to Supabase:', err);
       }
     }
 
     return newQuot;
+  };
+
+  // 3b. Update Quotation
+  const updateQuotation = async (reqId, quotId, quotationData) => {
+    const subtotal = parseFloat(quotationData.subtotal_amount) || 0;
+    const taxPercent = (quotationData.tax_percent !== undefined && quotationData.tax_percent !== null && quotationData.tax_percent !== '' && !isNaN(parseFloat(quotationData.tax_percent)))
+      ? parseFloat(quotationData.tax_percent)
+      : 0;
+    const taxAmt = (quotationData.tax_amount !== undefined && quotationData.tax_amount !== null && quotationData.tax_amount !== '' && !isNaN(parseFloat(quotationData.tax_amount)))
+      ? parseFloat(quotationData.tax_amount)
+      : Math.round(((subtotal * taxPercent) / 100) * 100) / 100;
+    const otherCharges = (quotationData.other_charges !== undefined && quotationData.other_charges !== null && quotationData.other_charges !== '' && !isNaN(parseFloat(quotationData.other_charges)))
+      ? parseFloat(quotationData.other_charges)
+      : 0;
+    const totalAmt = (quotationData.total_amount !== undefined && quotationData.total_amount !== null && quotationData.total_amount !== '' && !isNaN(parseFloat(quotationData.total_amount)))
+      ? parseFloat(quotationData.total_amount)
+      : (subtotal + taxAmt + otherCharges);
+
+    const agencyUuid = resolveAgencyUuid(quotationData.agency_id);
+
+    let updatedQuotObj = null;
+
+    setRequests(prev => prev.map(req => {
+      if (req.id === reqId || req.request_no === reqId) {
+        const updatedQuots = (req.quotations || []).map(q => {
+          if (q.id === quotId) {
+            updatedQuotObj = {
+              ...q,
+              ...quotationData,
+              subtotal_amount: subtotal,
+              tax_percent: taxPercent,
+              tax_amount: taxAmt,
+              other_charges: otherCharges,
+              total_amount: totalAmt,
+              updated_at: new Date().toISOString()
+            };
+            return updatedQuotObj;
+          }
+          return q;
+        });
+        return {
+          ...req,
+          quotations: updatedQuots
+        };
+      }
+      return req;
+    }));
+
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    logAudit('UPDATE_QUOTATION', 'quotation', quotId, {
+      request_no: req?.request_no,
+      agency_id: quotationData.agency_id,
+      total_amount: totalAmt
+    });
+    notifyCrossTab();
+
+    if (activeClient && isUUID(quotId)) {
+      try {
+        await activeClient.from('quotations').update({
+          agency_id: agencyUuid,
+          quotation_no: quotationData.quotation_no || null,
+          quotation_date: quotationData.quotation_date || null,
+          subtotal_amount: subtotal,
+          tax_percent: taxPercent,
+          tax_amount: taxAmt,
+          other_charges: otherCharges,
+          total_amount: totalAmt,
+          validity_date: quotationData.validity_date || null,
+          delivery_timeline: quotationData.delivery_timeline || null,
+          remarks: quotationData.remarks || null,
+          updated_at: new Date().toISOString()
+        }).eq('id', quotId);
+      } catch (err) {
+        console.error('Failed to sync quotation update to Supabase:', err);
+      }
+    }
+
+    return updatedQuotObj;
+  };
+
+  // 3c. Delete Quotation
+  const deleteQuotation = async (reqId, quotId) => {
+    setRequests(prev => prev.map(req => {
+      if (req.id === reqId || req.request_no === reqId) {
+        const updatedQuots = (req.quotations || []).filter(q => q.id !== quotId);
+        return {
+          ...req,
+          quotations: updatedQuots
+        };
+      }
+      return req;
+    }));
+
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    logAudit('DELETE_QUOTATION', 'quotation', quotId, { request_no: req?.request_no });
+    notifyCrossTab();
+
+    if (activeClient && isUUID(quotId)) {
+      try {
+        await activeClient.from('quotation_items').delete().eq('quotation_id', quotId);
+        await activeClient.from('quotations').delete().eq('id', quotId);
+      } catch (err) {
+        console.error('Failed to delete quotation from Supabase:', err);
+      }
+    }
   };
 
   // 4. Select Quotation with Rationale
@@ -1121,7 +1275,7 @@ export const DataProvider = ({ children }) => {
     }
 
     setRequests(prev => prev.map(req => {
-      if (req.id === reqId) {
+      if (req.id === reqId || req.request_no === reqId) {
         const updatedApprovals = [...(req.approvals || []), newApproval];
         return {
           ...req,
@@ -1133,7 +1287,7 @@ export const DataProvider = ({ children }) => {
       return req;
     }));
 
-    const req = requests.find(r => r.id === reqId);
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
     logAudit('RECORD_APPROVAL_DECISION', 'approval', apprId, {
       request_no: req?.request_no,
       decision: newApproval.decision,
@@ -1146,7 +1300,7 @@ export const DataProvider = ({ children }) => {
       try {
         await activeClient.from('approvals').insert({
           id: apprId,
-          request_id: reqId,
+          request_id: req?.id || reqId,
           authority_id: authUuid,
           selected_agency_id: agencyUuid,
           submission_date: newApproval.submission_date || null,
@@ -1163,7 +1317,7 @@ export const DataProvider = ({ children }) => {
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
-        }).eq('id', reqId);
+        }).eq('id', req?.id || reqId);
       } catch (err) {
         console.error('Failed to sync approval to Supabase:', err);
       }
@@ -1172,17 +1326,126 @@ export const DataProvider = ({ children }) => {
     return newApproval;
   };
 
-  // 6. Generate / Issue Approval Letter
+  // 5b. Update Approval Record
+  const updateApproval = async (reqId, apprId, approvalData) => {
+    const authUuid = resolveAuthUuid(approvalData.authority_id);
+    const agencyUuid = resolveAgencyUuid(approvalData.selected_agency_id);
+
+    let nextStage = 'approval_pending';
+    let nextStatus = 'Awaiting Approval';
+
+    if (approvalData.decision === 'Approved') {
+      nextStage = 'approved';
+      nextStatus = 'Approved';
+    } else if (approvalData.decision === 'Rejected') {
+      nextStage = 'rejected';
+      nextStatus = 'Rejected';
+    } else if (approvalData.decision === 'Returned for Clarification') {
+      nextStage = 'quotations';
+      nextStatus = 'Returned for Clarification';
+    }
+
+    let updatedApprObj = null;
+
+    setRequests(prev => prev.map(req => {
+      if (req.id === reqId || req.request_no === reqId) {
+        const updatedApprovals = (req.approvals || []).map(a => {
+          if (a.id === apprId) {
+            updatedApprObj = {
+              ...a,
+              ...approvalData,
+              proposed_amount: parseFloat(approvalData.proposed_amount) || 0,
+              approved_amount: approvalData.approved_amount ? parseFloat(approvalData.approved_amount) : (approvalData.decision === 'Approved' ? parseFloat(approvalData.proposed_amount) : null),
+              updated_at: new Date().toISOString()
+            };
+            return updatedApprObj;
+          }
+          return a;
+        });
+
+        return {
+          ...req,
+          approvals: updatedApprovals,
+          current_stage: nextStage,
+          overall_status: nextStatus
+        };
+      }
+      return req;
+    }));
+
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    logAudit('UPDATE_APPROVAL_DECISION', 'approval', apprId, {
+      request_no: req?.request_no,
+      decision: approvalData.decision,
+      approved_amount: approvalData.approved_amount
+    });
+    notifyCrossTab();
+
+    if (activeClient && isUUID(apprId)) {
+      try {
+        await activeClient.from('approvals').update({
+          authority_id: authUuid,
+          selected_agency_id: agencyUuid,
+          submission_date: approvalData.submission_date || null,
+          proposed_amount: parseFloat(approvalData.proposed_amount) || 0,
+          decision: approvalData.decision,
+          decision_date: approvalData.decision_date || null,
+          approved_amount: approvalData.approved_amount ? parseFloat(approvalData.approved_amount) : null,
+          decision_remarks: approvalData.decision_remarks || null,
+          is_recorded_external: Boolean(approvalData.is_recorded_external),
+          updated_at: new Date().toISOString()
+        }).eq('id', apprId);
+
+        await activeClient.from('requests').update({
+          current_stage: nextStage,
+          overall_status: nextStatus,
+          updated_at: new Date().toISOString()
+        }).eq('id', req?.id || reqId);
+      } catch (err) {
+        console.error('Failed to sync approval update to Supabase:', err);
+      }
+    }
+
+    return updatedApprObj;
+  };
+
+  // 5c. Delete Approval Record
+  const deleteApproval = async (reqId, apprId) => {
+    setRequests(prev => prev.map(req => {
+      if (req.id === reqId || req.request_no === reqId) {
+        const updatedApprovals = (req.approvals || []).filter(a => a.id !== apprId);
+        return {
+          ...req,
+          approvals: updatedApprovals
+        };
+      }
+      return req;
+    }));
+
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    logAudit('DELETE_APPROVAL', 'approval', apprId, { request_no: req?.request_no });
+    notifyCrossTab();
+
+    if (activeClient && isUUID(apprId)) {
+      try {
+        await activeClient.from('approvals').delete().eq('id', apprId);
+      } catch (err) {
+        console.error('Failed to delete approval from Supabase:', err);
+      }
+    }
+  };
+
+  // 6. Generate / Issue / Update Approval Letter
   const issueApprovalLetter = async (reqId, letterData) => {
-    const req = requests.find(r => r.id === reqId);
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
     const org = organizations.find(o => o.id === req?.org_id);
     const letterNo = letterData.letter_no || getNextLetterNo(org?.code || 'CVM');
-    const letId = generateUUID();
-    const wrkId = generateUUID();
+    const letId = req?.approval_letter?.id || generateUUID();
+    const wrkId = req?.work_record?.id || generateUUID();
 
     const newLetter = {
       id: letId,
-      request_id: reqId,
+      request_id: req?.id || reqId,
       letter_no: letterNo,
       letter_date: letterData.letter_date || new Date().toISOString().split('T')[0],
       signatory_title: letterData.signatory_title || 'Hon. Joint Secretary',
@@ -1194,7 +1457,8 @@ export const DataProvider = ({ children }) => {
       recipient_name: letterData.recipient_name || '',
       dispatch_remarks: letterData.dispatch_remarks || '',
       status: letterData.status || 'Generated',
-      created_at: new Date().toISOString()
+      created_at: req?.approval_letter?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
 
     const initialWorkRecord = req?.work_record || {
@@ -1208,7 +1472,7 @@ export const DataProvider = ({ children }) => {
     };
 
     setRequests(prev => prev.map(r => {
-      if (r.id === reqId) {
+      if (r.id === reqId || r.request_no === reqId) {
         return {
           ...r,
           approval_letter: newLetter,
@@ -1227,9 +1491,9 @@ export const DataProvider = ({ children }) => {
 
     if (activeClient) {
       try {
-        await activeClient.from('approval_letters').insert({
+        await activeClient.from('approval_letters').upsert({
           id: letId,
-          request_id: reqId,
+          request_id: req?.id || reqId,
           letter_no: letterNo,
           letter_date: newLetter.letter_date,
           signatory_title: newLetter.signatory_title,
@@ -1241,13 +1505,14 @@ export const DataProvider = ({ children }) => {
           recipient_name: newLetter.recipient_name || null,
           dispatch_remarks: newLetter.dispatch_remarks || null,
           status: newLetter.status,
-          created_at: newLetter.created_at
+          created_at: newLetter.created_at,
+          updated_at: new Date().toISOString()
         });
 
         if (!req?.work_record) {
           await activeClient.from('work_records').insert({
             id: wrkId,
-            request_id: reqId,
+            request_id: req?.id || reqId,
             agency_id: resolveAgencyUuid(initialWorkRecord.agency_id),
             status: 'Not Started',
             remarks: initialWorkRecord.remarks,
@@ -1262,7 +1527,7 @@ export const DataProvider = ({ children }) => {
     return newLetter;
   };
 
-  // 7. Update Work Status
+  // 7. Update Work Status & Details
   const updateWorkStatus = async (reqId, workData) => {
     let nextStage = 'in_progress';
     let nextStatus = 'Work In Progress';
@@ -1278,7 +1543,7 @@ export const DataProvider = ({ children }) => {
     let updatedWorkRecord = null;
 
     setRequests(prev => prev.map(req => {
-      if (req.id === reqId) {
+      if (req.id === reqId || req.request_no === reqId) {
         const prevStatus = req.work_record?.status || 'Not Started';
         const updatedWork = {
           ...(req.work_record || {}),
@@ -1296,7 +1561,7 @@ export const DataProvider = ({ children }) => {
               previous_status: prevStatus,
               new_status: workData.status,
               remarks: workData.remarks,
-              changed_by: currentUser?.full_name,
+              changed_by: currentUser?.full_name || 'NOC Staff',
               timestamp: new Date().toISOString()
             }
           ]
@@ -1313,7 +1578,7 @@ export const DataProvider = ({ children }) => {
       return req;
     }));
 
-    const req = requests.find(r => r.id === reqId);
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
     logAudit('UPDATE_WORK_STATUS', 'work_record', req?.request_no, {
       status: workData.status,
       engineer: workData.engineer_name
@@ -1324,7 +1589,7 @@ export const DataProvider = ({ children }) => {
       try {
         await activeClient.from('work_records').upsert({
           id: updatedWorkRecord.id,
-          request_id: reqId,
+          request_id: req?.id || reqId,
           agency_id: resolveAgencyUuid(updatedWorkRecord.agency_id),
           status: updatedWorkRecord.status,
           start_date: updatedWorkRecord.start_date || null,
@@ -1347,14 +1612,14 @@ export const DataProvider = ({ children }) => {
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
-        }).eq('id', reqId);
+        }).eq('id', req?.id || reqId);
       } catch (err) {
         console.error('Failed to sync work status to Supabase:', err);
       }
     }
   };
 
-  // 8. Add / Update Bill
+  // 8. Add Bill
   const addBill = async (reqId, billData) => {
     const billId = generateUUID();
     const agencyUuid = resolveAgencyUuid(billData.agency_id);
@@ -1378,7 +1643,7 @@ export const DataProvider = ({ children }) => {
     let nextStatus = newBill.bill_status === 'Approved' ? 'Bill Approved' : 'Pending Bill';
 
     setRequests(prev => prev.map(req => {
-      if (req.id === reqId) {
+      if (req.id === reqId || req.request_no === reqId) {
         const updatedBills = [...(req.bills || []), newBill];
         nextStage = req.current_stage === 'completed' ? 'billed' : req.current_stage;
         return {
@@ -1391,7 +1656,7 @@ export const DataProvider = ({ children }) => {
       return req;
     }));
 
-    const req = requests.find(r => r.id === reqId);
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
     logAudit('ADD_BILL', 'bill', billData.bill_no, {
       request_no: req?.request_no,
       submitted_amount: newBill.submitted_amount,
@@ -1403,7 +1668,7 @@ export const DataProvider = ({ children }) => {
       try {
         await activeClient.from('bills').insert({
           id: billId,
-          request_id: reqId,
+          request_id: req?.id || reqId,
           agency_id: agencyUuid,
           bill_no: newBill.bill_no,
           bill_date: newBill.bill_date,
@@ -1421,13 +1686,99 @@ export const DataProvider = ({ children }) => {
           current_stage: nextStage,
           overall_status: nextStatus,
           updated_at: new Date().toISOString()
-        }).eq('id', reqId);
+        }).eq('id', req?.id || reqId);
       } catch (err) {
         console.error('Failed to sync bill to Supabase:', err);
       }
     }
 
     return newBill;
+  };
+
+  // 8b. Update Bill
+  const updateBill = async (reqId, billId, billData) => {
+    const agencyUuid = resolveAgencyUuid(billData.agency_id);
+
+    let updatedBillObj = null;
+
+    setRequests(prev => prev.map(req => {
+      if (req.id === reqId || req.request_no === reqId) {
+        const updatedBills = (req.bills || []).map(b => {
+          if (b.id === billId) {
+            updatedBillObj = {
+              ...b,
+              ...billData,
+              submitted_amount: parseFloat(billData.submitted_amount) || 0,
+              approved_amount: billData.approved_amount ? parseFloat(billData.approved_amount) : null,
+              updated_at: new Date().toISOString()
+            };
+            return updatedBillObj;
+          }
+          return b;
+        });
+
+        return {
+          ...req,
+          bills: updatedBills
+        };
+      }
+      return req;
+    }));
+
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    logAudit('UPDATE_BILL', 'bill', billData.bill_no, {
+      request_no: req?.request_no,
+      submitted_amount: billData.submitted_amount,
+      bill_status: billData.bill_status
+    });
+    notifyCrossTab();
+
+    if (activeClient && isUUID(billId)) {
+      try {
+        await activeClient.from('bills').update({
+          agency_id: agencyUuid,
+          bill_no: billData.bill_no,
+          bill_date: billData.bill_date || null,
+          submitted_amount: parseFloat(billData.submitted_amount) || 0,
+          bill_approval_date: billData.bill_approval_date || null,
+          approved_amount: billData.approved_amount ? parseFloat(billData.approved_amount) : null,
+          bill_status: billData.bill_status,
+          payment_ref: billData.payment_ref || null,
+          remarks: billData.remarks || null,
+          updated_at: new Date().toISOString()
+        }).eq('id', billId);
+      } catch (err) {
+        console.error('Failed to sync bill update to Supabase:', err);
+      }
+    }
+
+    return updatedBillObj;
+  };
+
+  // 8c. Delete Bill
+  const deleteBill = async (reqId, billId) => {
+    setRequests(prev => prev.map(req => {
+      if (req.id === reqId || req.request_no === reqId) {
+        const updatedBills = (req.bills || []).filter(b => b.id !== billId);
+        return {
+          ...req,
+          bills: updatedBills
+        };
+      }
+      return req;
+    }));
+
+    const req = requests.find(r => r.id === reqId || r.request_no === reqId);
+    logAudit('DELETE_BILL', 'bill', billId, { request_no: req?.request_no });
+    notifyCrossTab();
+
+    if (activeClient && isUUID(billId)) {
+      try {
+        await activeClient.from('bills').delete().eq('id', billId);
+      } catch (err) {
+        console.error('Failed to delete bill from Supabase:', err);
+      }
+    }
   };
 
   // 9. Close Request
@@ -1666,6 +2017,20 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  const deleteInstitute = async (id) => {
+    setInstitutes(prev => prev.filter(inst => inst.id !== id));
+    logAudit('DELETE_INSTITUTE', 'institute', id, { message: 'Institute deleted' });
+    notifyCrossTab();
+
+    if (activeClient) {
+      try {
+        await activeClient.from('institutes').delete().eq('id', id);
+      } catch (err) {
+        console.error('Failed to delete institute from Supabase:', err);
+      }
+    }
+  };
+
   const addAgency = async (data) => {
     const id = generateUUID();
     const newAgency = { id, ...data, is_active: true };
@@ -1703,6 +2068,20 @@ export const DataProvider = ({ children }) => {
         await activeClient.from('agencies').update(data).eq('id', id);
       } catch (err) {
         console.error('Failed to sync agency update to Supabase:', err);
+      }
+    }
+  };
+
+  const deleteAgency = async (id) => {
+    setAgencies(prev => prev.filter(ag => ag.id !== id));
+    logAudit('DELETE_AGENCY', 'agency', id, { message: 'Agency deleted' });
+    notifyCrossTab();
+
+    if (activeClient) {
+      try {
+        await activeClient.from('agencies').delete().eq('id', id);
+      } catch (err) {
+        console.error('Failed to delete agency from Supabase:', err);
       }
     }
   };
@@ -1745,6 +2124,42 @@ export const DataProvider = ({ children }) => {
         console.error('Failed to sync authority update to Supabase:', err);
       }
     }
+  };
+
+  const deleteAuthority = async (id) => {
+    setAuthorities(prev => prev.filter(auth => auth.id !== id));
+    logAudit('DELETE_AUTHORITY', 'authority', id, { message: 'Authority deleted' });
+    notifyCrossTab();
+
+    if (activeClient) {
+      try {
+        await activeClient.from('approval_authorities').delete().eq('id', id);
+      } catch (err) {
+        console.error('Failed to delete authority from Supabase:', err);
+      }
+    }
+  };
+
+  // Historical Stock Notes CRUD
+  const addStockNote = async (data) => {
+    const id = generateUUID();
+    const newNote = { id, ...data, created_at: new Date().toISOString() };
+    setStockNotes(prev => [...prev, newNote]);
+    logAudit('ADD_STOCK_NOTE', 'stock_note', id, data);
+    notifyCrossTab();
+    return newNote;
+  };
+
+  const updateStockNote = async (id, data) => {
+    setStockNotes(prev => prev.map(item => (item.id === id ? { ...item, ...data, updated_at: new Date().toISOString() } : item)));
+    logAudit('UPDATE_STOCK_NOTE', 'stock_note', id, data);
+    notifyCrossTab();
+  };
+
+  const deleteStockNote = async (id) => {
+    setStockNotes(prev => prev.filter(item => item.id !== id));
+    logAudit('DELETE_STOCK_NOTE', 'stock_note', id, { message: 'Stock note removed' });
+    notifyCrossTab();
   };
 
   // Team Members CRUD
@@ -1894,20 +2309,33 @@ export const DataProvider = ({ children }) => {
         updateRequest,
         deleteRequest,
         addQuotation,
+        updateQuotation,
+        deleteQuotation,
         selectQuotation,
         submitApproval,
+        updateApproval,
+        deleteApproval,
         issueApprovalLetter,
+        updateApprovalLetter: issueApprovalLetter,
         updateWorkStatus,
         addBill,
+        updateBill,
+        deleteBill,
         closeRequest,
         reopenRequest,
         addDocument,
         addInstitute,
         updateInstitute,
+        deleteInstitute,
         addAgency,
         updateAgency,
+        deleteAgency,
         addAuthority,
         updateAuthority,
+        deleteAuthority,
+        addStockNote,
+        updateStockNote,
+        deleteStockNote,
         addTeamMember,
         updateTeamMember,
         deleteTeamMember,

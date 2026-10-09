@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
+import { PwaInstallButton } from './PwaInstallButton';
 
 export const Sidebar = ({ isOpen, onClose }) => {
   const { currentUser, role, logout } = useAuth();
@@ -176,23 +177,28 @@ export const Sidebar = ({ isOpen, onClose }) => {
       </nav>
 
       <div className="sidebar-footer">
-        <div className="user-snippet">
-          <div className="user-avatar" style={{ background: '#2563eb', color: '#ffffff' }}>
-            {currentUser?.full_name ? currentUser.full_name.charAt(0).toUpperCase() : 'U'}
-          </div>
-          <div className="user-info-text">
-            <div className="user-name">{currentUser?.full_name || 'System User'}</div>
-            <div className="user-role">{role?.replace('_', ' ')}</div>
-          </div>
+        <div style={{ marginBottom: 10 }}>
+          <PwaInstallButton variant="sidebar" />
         </div>
-        <button
-          className="btn-icon"
-          title="Sign out from system"
-          onClick={handleLogout}
-          style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
-        >
-          <LogOut size={16} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="user-snippet">
+            <div className="user-avatar" style={{ background: '#2563eb', color: '#ffffff' }}>
+              {currentUser?.full_name ? currentUser.full_name.charAt(0).toUpperCase() : 'U'}
+            </div>
+            <div className="user-info-text">
+              <div className="user-name">{currentUser?.full_name || 'System User'}</div>
+              <div className="user-role">{role?.replace('_', ' ')}</div>
+            </div>
+          </div>
+          <button
+            className="btn-icon"
+            title="Sign out from system"
+            onClick={handleLogout}
+            style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </div>
     </aside>
   );

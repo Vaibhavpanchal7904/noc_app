@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Receipt, Search, Plus, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Receipt, Search, Plus, CheckCircle2, AlertCircle, Edit2 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { formatCurrency, formatDate } from '../utils/pdfGenerator';
 import { StatusBadge } from '../components/StatusBadge';
@@ -124,8 +124,8 @@ export const BillsPage = () => {
                     </td>
                     <td style={{ fontSize: 12 }}>{b.payment_ref || '-'}</td>
                     <td>
-                      <Link to={`/requests/${b.request_id}`} className="btn btn-secondary btn-sm">
-                        Inspect
+                      <Link to={`/requests/${b.request_id}?tab=bills`} className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Edit2 size={12} /> Edit / Inspect
                       </Link>
                     </td>
                   </tr>

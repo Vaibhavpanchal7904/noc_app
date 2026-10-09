@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FileSpreadsheet, Search, Filter, GitCompare, Building2, CheckCircle2 } from 'lucide-react';
+import { FileSpreadsheet, Search, Filter, GitCompare, Building2, CheckCircle2, Edit2 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { formatCurrency, formatDate } from '../utils/pdfGenerator';
 import { StatusBadge } from '../components/StatusBadge';
@@ -134,8 +134,8 @@ export const QuotationsList = () => {
                       )}
                     </td>
                     <td>
-                      <Link to={`/requests/${q.request_id}`} className="btn btn-secondary btn-sm">
-                        Inspect
+                      <Link to={`/requests/${q.request_id}?tab=quotations`} className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Edit2 size={12} /> Edit / Inspect
                       </Link>
                     </td>
                   </tr>

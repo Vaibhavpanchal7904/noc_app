@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { PwaProvider } from './context/PwaContext';
 import { DataProvider } from './context/DataContext';
+import { NotificationProvider } from './context/NotificationContext';
+import { ToastNotification } from './components/ToastNotification';
 
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -58,6 +61,9 @@ const AppLayout = ({ children }) => {
 
   return (
     <div className="app-container">
+      {/* Realtime Floating Toast Alerts */}
+      <ToastNotification />
+
       {/* Mobile Drawer Backdrop */}
       <div 
         className={`sidebar-backdrop ${sidebarOpen ? 'active' : ''}`}
@@ -79,37 +85,41 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <DataProvider>
-          <Routes>
-            <Route path="/login" element={<Login />} />
+        <PwaProvider>
+          <DataProvider>
+            <NotificationProvider>
+              <Routes>
+                <Route path="/login" element={<Login />} />
 
-            {/* Application Protected Pages */}
-            <Route path="/" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
-            <Route path="/requests" element={<ProtectedRoute><AppLayout><AllRequests /></AppLayout></ProtectedRoute>} />
-            <Route path="/requests/create" element={<ProtectedRoute><AppLayout><CreateRequest /></AppLayout></ProtectedRoute>} />
-            <Route path="/requests/:id" element={<ProtectedRoute><AppLayout><RequestDetails /></AppLayout></ProtectedRoute>} />
-            <Route path="/quotations" element={<ProtectedRoute><AppLayout><QuotationsList /></AppLayout></ProtectedRoute>} />
-            <Route path="/quotations/compare" element={<ProtectedRoute><AppLayout><QuotationComparisonPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/approvals" element={<ProtectedRoute><AppLayout><ApprovalManagement /></AppLayout></ProtectedRoute>} />
-            <Route path="/approval-letters" element={<ProtectedRoute><AppLayout><ApprovalLetters /></AppLayout></ProtectedRoute>} />
-            <Route path="/work-tracking" element={<ProtectedRoute><AppLayout><WorkTrackingPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/bills" element={<ProtectedRoute><AppLayout><BillsPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/documents" element={<ProtectedRoute><AppLayout><DocumentsPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/institutes" element={<ProtectedRoute><AppLayout><InstitutesPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/agencies" element={<ProtectedRoute><AppLayout><AgenciesPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/authorities" element={<ProtectedRoute><AppLayout><AuthoritiesPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/team" element={<ProtectedRoute><AppLayout><TeamDirectoryPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/reports" element={<ProtectedRoute><AppLayout><ReportsPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/import-export" element={<ProtectedRoute><AppLayout><ImportExportPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/users" element={<ProtectedRoute><AppLayout><UserManagement /></AppLayout></ProtectedRoute>} />
-            <Route path="/audit-logs" element={<ProtectedRoute><AppLayout><AuditLogsPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/stock-notes" element={<ProtectedRoute><AppLayout><HistoricalStockPage /></AppLayout></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute><AppLayout><SettingsPage /></AppLayout></ProtectedRoute>} />
+                {/* Application Protected Pages */}
+                <Route path="/" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
+                <Route path="/requests" element={<ProtectedRoute><AppLayout><AllRequests /></AppLayout></ProtectedRoute>} />
+                <Route path="/requests/create" element={<ProtectedRoute><AppLayout><CreateRequest /></AppLayout></ProtectedRoute>} />
+                <Route path="/requests/:id" element={<ProtectedRoute><AppLayout><RequestDetails /></AppLayout></ProtectedRoute>} />
+                <Route path="/quotations" element={<ProtectedRoute><AppLayout><QuotationsList /></AppLayout></ProtectedRoute>} />
+                <Route path="/quotations/compare" element={<ProtectedRoute><AppLayout><QuotationComparisonPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/approvals" element={<ProtectedRoute><AppLayout><ApprovalManagement /></AppLayout></ProtectedRoute>} />
+                <Route path="/approval-letters" element={<ProtectedRoute><AppLayout><ApprovalLetters /></AppLayout></ProtectedRoute>} />
+                <Route path="/work-tracking" element={<ProtectedRoute><AppLayout><WorkTrackingPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/bills" element={<ProtectedRoute><AppLayout><BillsPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/documents" element={<ProtectedRoute><AppLayout><DocumentsPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/institutes" element={<ProtectedRoute><AppLayout><InstitutesPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/agencies" element={<ProtectedRoute><AppLayout><AgenciesPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/authorities" element={<ProtectedRoute><AppLayout><AuthoritiesPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/team" element={<ProtectedRoute><AppLayout><TeamDirectoryPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/reports" element={<ProtectedRoute><AppLayout><ReportsPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/import-export" element={<ProtectedRoute><AppLayout><ImportExportPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/users" element={<ProtectedRoute><AppLayout><UserManagement /></AppLayout></ProtectedRoute>} />
+                <Route path="/audit-logs" element={<ProtectedRoute><AppLayout><AuditLogsPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/stock-notes" element={<ProtectedRoute><AppLayout><HistoricalStockPage /></AppLayout></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><AppLayout><SettingsPage /></AppLayout></ProtectedRoute>} />
 
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </DataProvider>
+                {/* Fallback */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </NotificationProvider>
+          </DataProvider>
+        </PwaProvider>
       </AuthProvider>
     </BrowserRouter>
   );
