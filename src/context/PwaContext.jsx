@@ -16,8 +16,8 @@ export const PwaProvider = ({ children }) => {
 
   // Register Service Worker
   useEffect(() => {
-    if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'test') {
-      window.addEventListener('load', () => {
+    if ('serviceWorker' in navigator && typeof window !== 'undefined') {
+      const registerSW = () => {
         navigator.serviceWorker
           .register('/sw.js')
           .then((reg) => {
@@ -38,7 +38,14 @@ export const PwaProvider = ({ children }) => {
           .catch((err) => {
             console.warn('PWA Service Worker registration warning:', err);
           });
-      });
+      };
+
+      if (document.readyState === 'complete') {
+        registerSW();
+      } else {
+        window.addEventListener('load', registerSW);
+        return () => window.removeEventListener('load', registerSW);
+      }
     }
 
     // Check if already in standalone/installed mode
@@ -123,4 +130,17 @@ export const PwaProvider = ({ children }) => {
   );
 };
 
-export const usePwa = () => useContext(PwaContext);
+export const usePwa = () => {
+  const ctx = useContext(PwaContext);
+  if (!ctx) {
+    return {
+      isInstallable: false,
+      isInstalled: false,
+      isOffline: false,
+      installApp: async () => false,
+      updateAvailable: false,
+      applyUpdate: () => {}
+    };
+  }
+  return ctx;
+};

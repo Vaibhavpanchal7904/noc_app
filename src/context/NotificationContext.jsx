@@ -328,4 +328,24 @@ export const NotificationProvider = ({ children }) => {
   );
 };
 
-export const useNotification = () => useContext(NotificationContext);
+export const useNotification = () => {
+  const ctx = useContext(NotificationContext);
+  if (!ctx) {
+    return {
+      notifications: [],
+      unreadCount: 0,
+      activeToast: null,
+      soundEnabled: false,
+      desktopPermission: 'unsupported',
+      notifyNewRequest: () => {},
+      markAsRead: () => {},
+      markAllAsRead: () => {},
+      clearNotifications: () => {},
+      dismissToast: () => {},
+      toggleSound: () => {},
+      requestDesktopPermission: async () => 'unsupported',
+      handleIncomingNotification: () => {}
+    };
+  }
+  return ctx;
+};
