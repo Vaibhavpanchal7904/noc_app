@@ -8,7 +8,7 @@ import { NotificationCenter } from './NotificationCenter';
 import { PwaInstallButton } from './PwaInstallButton';
 
 export const Header = ({ onToggleSidebar }) => {
-  const { currentUser, switchDemoUser, isConfigured } = useAuth();
+  const { currentUser, switchDemoUser, isConfigured, logout } = useAuth();
   const { resetToFactoryData, requests, syncStatus, refetchData } = useData();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -248,11 +248,6 @@ export const Header = ({ onToggleSidebar }) => {
                 {/* Logout Button */}
                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 8, marginTop: 8 }}>
                   <button
-                    onClick={async () => {
-                      setShowUserMenu(false);
-                      const { logout } = useAuth();
-                      // call logout directly from hook
-                    }}
                     style={{
                       width: '100%',
                       padding: '8px 12px',
@@ -268,8 +263,7 @@ export const Header = ({ onToggleSidebar }) => {
                       justifyContent: 'center',
                       gap: 6
                     }}
-                    onClickCapture={async (e) => {
-                      e.stopPropagation();
+                    onClick={async () => {
                       setShowUserMenu(false);
                       await logout();
                       navigate('/login');
